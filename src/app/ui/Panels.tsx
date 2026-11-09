@@ -41,6 +41,16 @@ export function FilesPanel({ project, result, openFile, activeFile, building }: 
     const name = prompt('Folder name', 'parts');
     if (name) actions.writeFile(project.id, `${name}/.keep`, '');
   };
+  const importRef = useRef<HTMLInputElement>(null);
+  const importFile = async (f: File) => {
+    const ext = (/\.([a-z0-9]+)$/i.exec(f.name)?.[1] ?? '').toLowerCase();
+    const textual = ['dxf', 'svg', 'obj', 'ply', 'step', 'stp', 'json', 'js', 'csv', 'txt'].includes(ext);
+    let content = textual ? await f.text() : await blobToDataUrl(f);
+    if (ext === 'stl' && !/[^\x09\x0a\x0d\x20-\x7e]/.test((await f.slice(0, 512).text()))) content = await f.text();
+    actions.writeFile(project.id, f.name, content);
+    const call = ext === 'dxf' ? 'Import.dxfSketch' : ext === 'svg' ? 'Import.svgSketch' : ext === 'step' || ext === 'stp' ? 'Import.step' : 'Import.mesh';
+    toast(`Added ${f.name}. Use ${call}("${f.name}") in your model.`);
+  };
   const rename = (f: string) => { const to = prompt('Rename to', f); if (to && to !== f) actions.renameFile(project.id, f, to); };
   const del = (f: string) => { if (confirm(`Delete ${f}?`)) actions.deleteFile(project.id, f); };
 
@@ -49,6 +59,8 @@ export function FilesPanel({ project, result, openFile, activeFile, building }: 
       <div className="panel-head"><h3 className="grow">Files</h3>
         <button onClick={() => newFile()} title="New file"><Icon name="plus" size={13} /> File</button>
         <button onClick={newFolder} title="New folder"><Icon name="folder" size={13} /> Folder</button>
+        <button onClick={() => importRef.current?.click()} title="Import DXF, SVG, STL, OBJ, 3MF, PLY or STEP"><Icon name="upload" size={13} /> Import</button>
+        <input ref={importRef} type="file" hidden accept=".dxf,.svg,.stl,.obj,.3mf,.ply,.step,.stp" onChange={(e) => { const f = e.target.files?.[0]; if (f) void importFile(f); e.target.value = ''; }} />
       </div>
       <div>
         {tree.map((r) => (

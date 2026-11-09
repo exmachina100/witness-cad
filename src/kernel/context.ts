@@ -33,6 +33,8 @@ export class RunContext {
   mocks = new WeakSet<object>();
   warnings: string[] = [];
   currentFile = 'main.forge.js';
+  /** Project files of the current run (for Import.* by file name). */
+  files: Record<string, string> = {};
   constructor(paramValues: Record<string, any> = {}) { this.paramValues = paramValues; }
   log(level: LogRecord['level'], ...args: any[]) {
     this.logs.push({ level, message: args.map(fmt).join(' '), time: Date.now() });

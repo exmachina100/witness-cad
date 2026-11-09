@@ -240,7 +240,31 @@ Shaded, X-ray, Wireframe, Normals, Zebra, Mask, Colliders, Distance (click two p
 \`Wood.dado(board, face, { width, depth, offset })\`, \`Wood.rabbet(board, face, edgeFace, { width, depth })\`, \`Wood.mortiseAndTenon(a, aFace, b, bFace, { width, thickness, length })\`.
 
 ## Library namespace
-Every part-library function is a global and is also on \`lib\` (for example \`lib.spurGear\`, \`lib.gearBodies.spoked\`).` },
+Every part-library function is a global and is also on \`lib\` (for example \`lib.spurGear\`, \`lib.gearBodies.spoked\`).
+
+## Importing files
+Add a file with **Files > Import** (or write it into the project), then:
+- \`Import.dxfSketch("part.dxf", { layer, scale })\`: closed polylines, circles, ellipses, splines, and chained lines/arcs become a sketch (inner loops are holes)
+- \`Import.svgSketch("logo.svg", { scale })\`: paths, rects, circles, ellipses and polygons (y flipped so +y is up)
+- \`Import.mesh("bracket.stl" | ".obj" | ".3mf" | ".ply", { scale, hull })\`: a closed mesh becomes a solid; \`hull: true\` wraps open meshes
+- \`Import.step("housing.step")\`: OpenCascade tessellates the STEP solids (loaded on demand)
+
+## Sheet metal
+\`\`\`js
+const rule = SheetMetal.ruleFromGauge(16, "steel");      // or SheetMetal.rule({ thickness, bendRadius, kFactor })
+const part = sheetMetal({ width: 120, height: 80, rule })
+  .flange("right", { length: 25 }).flange("left", { length: 25, angle: 90 })
+  .cutout(circle2d(6));                                    // region "base" by default
+return part.folded();                                      // part.flatPattern() gives the blank with bend allowances
+\`\`\`
+Edges are listed in \`SHEET_METAL_EDGES\`; \`part.regionNames()\` lists base and flanges; \`rule.bendAllowance(deg)\` and \`rule.bendDeduction(deg)\` give the numbers.
+
+## Laser-cut kits
+\`Laser.panel({ width, height, thickness, cornerRadius, holes })\`, \`Laser.part(sketch, { thickness, material })\` (kerf from \`Laser.lookupKerf(material, thickness)\` / \`Laser.COMMON_KERFS\`), \`Laser.tabSlot({ length, thickness })\` returns \`{ tabs, slots }\`, \`Laser.fingerJoint(length, { thickness })\`.
+\`Laser.kit([{ name, shape, quantity, pose, step }], { sheetWidth, sheetHeight })\` nests parts on sheets (\`kit.sheetCount()\`, \`kit.toSvg(i)\`, \`kit.toDxf(i)\`); \`Laser.assemblyPreview(kit)\` poses them; \`Laser.instructions(kit)\` and \`Laser.formatInstructions(...)\` write the build steps.
+
+## Constrained sketch extras
+\`cs.pointAt(x, y)\`, \`cs.lineAt(x1, y1, x2, y2)\`, \`cs.shape(points)\`, \`cs.groupRect({ width })\`, \`cs.group(...)\`, \`cs.route(points, { close })\`, \`cs.shapeWidth/shapeHeight/shapeArea/shapeCentroidX/shapeCentroidY(shape, value)\`, \`cs.shapeEqualCentroid(a, b)\`, \`cs.arcLength(arc?, value)\`, \`cs.lineTangentArc(line, arc)\`, \`cs.arcTangentArc(a, b)\`, \`cs.smoothBlend(a, b)\`, \`cs.referenceFrom(solved, point)\`, \`cs.referenceAllFrom(solved)\`.` },
   { id: 'lib', title: 'Part library', body: `# Part library
 
 - Stock: \`tube(ox, oy, oz, wall)\`, \`pipe(height, outerR, wall)\`, \`bracket(w, h, d, thick, holeDia)\`, \`holePattern(rows, cols, sx, sy, dia, depth)\`, \`tSlotExtrusion(length)\`, \`profile2020BSlot6(length)\`

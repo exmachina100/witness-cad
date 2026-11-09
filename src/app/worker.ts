@@ -14,6 +14,20 @@ import { simulateDynamics, holdTest } from '../kernel/physics';
 import { intersectWithPlane, projectToPlane, union } from '../kernel/ops';
 import { Shape } from '../kernel/shape';
 import { ShapeGroup } from '../kernel/ops';
+import { projectNeedsStep } from '../kernel/importers';
+import { installStepReader } from '../kernel/stepReader';
+import occtWasmUrl from 'occt-import-js/dist/occt-import-js.wasm?url';
+
+let stepReady: Promise<void> | null = null;
+/** Load the 7 MB OpenCascade STEP reader only when a project imports STEP. */
+function ensureStepReader() {
+  if (!stepReady) stepReady = (async () => {
+    const mod: any = await import('occt-import-js');
+    const init = mod.default ?? mod;
+    installStepReader(await init({ locateFile: () => occtWasmUrl }));
+  })().catch((e) => { stepReady = null; throw e; });
+  return stepReady;
+}
 
 const ready = (async () => {
   await initKernel(wasmUrl);
@@ -57,6 +71,7 @@ self.onmessage = async (ev: MessageEvent) => {
     switch (type) {
       case 'run': {
         if (payload.projects) projects = payload.projects;
+        if (projectNeedsStep(payload.files)) await ensureStepReader();
         const r = runProject({ files: payload.files, entry: payload.entry }, payload.params ?? {});
         // logs and errors stay plain data; meshes are transferred
         result = r;
