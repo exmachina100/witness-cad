@@ -7,7 +7,8 @@ import { Param, param } from './params';
 import { verify, spec } from './verify';
 import { bom, dim, Manufacturing, sketchToDxf, sketchToSvg } from './output';
 import { scene, cutPlane, explodeView, compareWith, mock, Viewport } from './viewport';
-import { assembly, connector, Spring, Assembly } from './assembly';
+import { assembly, Spring, Assembly } from './assembly';
+import { Points, TransformExtras, connector, ANCHOR3D_NAMES, SHEET_METAL_EDGES, route, Optics, SimReady, woodJoinery, libNamespace } from './extras';
 import { Sim, Fea, PhysicalMaterial, PhysicalProperties } from './sim';
 import './physics';
 import { Curve, loft, sweep, variableSweep, Loft } from './curves';
@@ -25,6 +26,7 @@ export const Transform = {
   multiply: (...ms: number[][]) => ms.reduce((a, b) => mat4.mul(a, b), mat4.identity()),
   invert: (m: number[]) => mat4.invert(m),
   apply: (m: number[], p: [number, number, number]) => mat4.apply(m, p),
+  ...TransformExtras,
 };
 
 export function buildGlobals(): Record<string, any> {
@@ -58,7 +60,8 @@ export function buildGlobals(): Record<string, any> {
     spurGear: lib.spurGear, spurGearProfile: lib.spurGearProfile, bevelGear: lib.bevelGear, faceGear: lib.faceGear, ringGear: lib.ringGear, rackGear: lib.rackGear,
     gearPair: lib.gearPair, bevelGearPair: lib.bevelGearPair, faceGearPair: lib.faceGearPair, gearRatio: lib.gearRatio, rackRatio: lib.rackRatio,
     planetaryRatio: lib.planetaryRatio, sectorGear: lib.sectorGear, gearBodies: lib.gearBodies, driveWheel: lib.driveWheel, readDriveWheelMeta: lib.readDriveWheelMeta,
-    hexagon: lib.hexagon, metric,
+    hexagon: lib.hexagon, metric, lib: libNamespace,
+    Points, ANCHOR3D_NAMES, SHEET_METAL_EDGES, route, Optics, SimReady,
     // math helpers
     Transform, Vec3: v3, deg: (r: number) => (r * 180) / Math.PI, rad: (d: number) => (d * Math.PI) / 180,
     // classes for instanceof checks
@@ -91,6 +94,7 @@ function woodLib() {
       const c = o.clearance ?? 0.2;
       return shape.cutout(sk.rect(o.width + c, o.thickness + c).onFace(shape, face), { depth: o.depth });
     },
+    ...woodJoinery,
     dowelHole: (shape: Shape, face: string, o: { diameter?: number; depth?: number; u?: number; v?: number } = {}) => shape.hole(face, { diameter: o.diameter ?? 8, depth: o.depth ?? 20, u: o.u, v: o.v }),
   };
 }

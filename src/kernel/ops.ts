@@ -2,7 +2,7 @@
 import type { Manifold } from 'manifold-3d';
 import { K } from './wasm';
 import { mat4, toVec3, v3, Vec3 } from './math';
-import { allocations, EdgeSegment, flatShapes, Shape } from './shape';
+import { allocations, Connector, EdgeSegment, flatShapes, Shape } from './shape';
 import { DEFAULT_SEGMENTS, Sketch } from './sketch';
 import { ForgeError } from './errors';
 import { featureEdges } from './mesh';
@@ -270,8 +270,27 @@ export interface GroupChild { name: string; item: Shape | Sketch | ShapeGroup; t
 export class ShapeGroup {
   readonly kind = 'group';
   readonly children: GroupChild[];
-  constructor(children: GroupChild[]) { this.children = children; }
-  private map(fn: (s: any) => any): ShapeGroup { return new ShapeGroup(this.children.map((c) => ({ ...c, item: fn(c.item) }))); }
+  /** Group-level connectors (moved with the group) and metadata. */
+  readonly connectors: Record<string, Connector>;
+  readonly meta: Record<string, any>;
+  constructor(children: GroupChild[], extra: { connectors?: Record<string, Connector>; meta?: Record<string, any> } = {}) {
+    this.children = children;
+    this.connectors = extra.connectors ?? {};
+    this.meta = extra.meta ?? {};
+  }
+  /** Copy with new children (or the same ones) and merged extras. */
+  with(extra: { children?: GroupChild[]; connectors?: Record<string, Connector>; meta?: Record<string, any> }): ShapeGroup {
+    return new ShapeGroup(extra.children ?? this.children, { connectors: extra.connectors ?? this.connectors, meta: extra.meta ?? this.meta });
+  }
+  private map(fn: (s: any) => any): ShapeGroup {
+    let connectors = this.connectors, meta = this.meta;
+    if (Object.keys(connectors).length || meta.references) {
+      // Carry group connectors and reference points through the same transform with a tiny probe solid.
+      const probe = fn(box(1e-3, 1e-3, 1e-3).withConnectors(connectors).withMeta({ references: meta.references }));
+      if (probe instanceof Shape) { connectors = probe.connectors; if (meta.references) meta = { ...meta, references: probe.meta.references }; }
+    }
+    return new ShapeGroup(this.children.map((c) => ({ ...c, item: fn(c.item) })), { connectors, meta });
+  }
   translate(x: any, y = 0, z = 0) { return this.map((s) => s.translate(x, y, z)); }
   rotate(a: any, d?: number, o?: any) { return this.map((s) => (s instanceof Sketch ? s.rotate(d ?? a) : s.rotate(a, d, o))); }
   rotateX(d: number, o?: any) { return this.map((s) => s.rotateX(d, o)); }

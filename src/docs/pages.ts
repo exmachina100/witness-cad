@@ -23,7 +23,7 @@ return { "starter plate": base.subtract(hole) };
 Files, Agent, Params, 2D views, Make, Artifacts and Inspect live on the left rail. The viewport and the code editor share the centre. Use ⌘S to save and rebuild, ⌘P to find a file, and ⌘⇧P for the command palette.
 
 ## Pages
-core · sketch · curves · assembly · output · viewport · lib · agents · cli` },
+core · sketch · curves · assembly · output · viewport · helpers · lib · agents · cli` },
   { id: 'core', title: 'Core API', body: `# Core API
 
 ## Primitives
@@ -206,6 +206,41 @@ Mesh: 3MF (recommended), STL, GLB, OBJ, PLY. CAD: STEP (AP214 exact B-rep: plane
 
 ## Inspect modes
 Shaded, X-ray, Wireframe, Normals, Zebra, Mask, Colliders, Distance (click two points), Interference (assembly collisions in red), Thickness, Process. The View section also has Orbit, Home, Fit, the six view presets plus iso, Edges, and Perspective/Orthographic.` },
+  { id: 'helpers', title: 'Helpers: points, transforms, references, joinery', body: `# Helpers
+
+## Points and transforms
+- \`Points.distance(a, b)\`, \`Points.midpoint(a, b)\`, \`Points.lerp(a, b, t)\`, \`Points.direction(a, b)\`, \`Points.offset(p, dir, d)\`, \`Points.polar(r, deg, z?)\`
+- \`Transform.identity/translation/rotation/scale/multiply/invert/apply\`, plus \`Transform.compose(...frames)\`, \`Transform.fromFrame({ origin, z, x })\`, \`Transform.rotationAxis(axis, deg, pivot)\`, \`Transform.rotateAroundTo(axis, pivot, fromPoint, toPoint)\`
+
+## Connectors and references
+- \`connector(name, { origin, axis, up })\`, \`connector.male(...)\`, \`connector.female(...)\`
+- Shapes and groups: \`.withConnectors()\`, \`.connectorNames()\`, \`.connectorsByType('male')\`, \`.connectorDistance(a, b)\`, \`.connectorMeasurements()\`, \`.matchTo(mine, target)\`
+- \`.withReferences({ points })\`, \`.referenceNames()\`, \`.referencePoint(name)\` / \`.ref(name)\` (also any of \`ANCHOR3D_NAMES\` such as "top-front-left"), \`.placeReference(name, target)\`, \`.withDatum(name, point)\`
+- Groups: \`.childNames()\`, \`.childName(i)\`, \`.portNames()\`, \`.onFace(shape, face, { u, v })\`, \`.scale\`, \`.mirror\`, \`.pointAlong\`, \`.rotateAroundTo\`
+
+## Metadata
+\`.withPhysicalMaterial(mat)\` / \`.physicalMaterial()\`, \`.withManufacturing(Manufacturing.print())\` / \`.manufacturing()\`, \`.withAssemblyStep(n)\`, \`.withInstructionPage(page)\`, \`.withDrawing(opts)\`, \`.geometryInfo()\`, \`.getMesh()\`, \`.numBodies()\`, \`.clone()\`.
+
+## Placement
+\`.seatInto(target, { depth })\`, \`.seatOver(target, { gap })\`, \`.splitBySurface({ origin, normal })\`, \`.rotateAroundTo(axis, pivot, from, to)\`.
+
+## Sections
+\`Shape.slicePerpendicularToX/Y/Z(shape, at)\`, \`Shape.sliceThrough(shape, { origin, normal })\`, \`Shape.sliceOnFrame(shape, frame)\`, \`Shape.fromSlices([{ z, sketch }, ...])\`.
+
+## Assemblies
+\`assembly.addJoint(name, type, parent, child, { origin, axis, childOrigin, min, max })\` adds a joint without declaring connectors first.
+
+## Route builder
+\`route([x, y]).right(10).up(20).arcLeft(5, 90).lineAt(30, 15).toward([0, 0]).close().done()\` returns \`{ points, length, stroke(width), toSketch(), to3d(z) }\`. \`route.line(points)\` and \`route.fillet(points, radius)\` make 3D polylines.
+
+## Optics and sim presets
+\`Optics.thinLens({ focalLength, objectDistance })\`, \`Optics.camera({ position, target, fov })\`, \`Optics.eyeCamera({ at })\`, \`Optics.currentCamera()\`, \`SimReady.propRoboticsNeutral()\`.
+
+## Wood joinery
+\`Wood.dado(board, face, { width, depth, offset })\`, \`Wood.rabbet(board, face, edgeFace, { width, depth })\`, \`Wood.mortiseAndTenon(a, aFace, b, bFace, { width, thickness, length })\`.
+
+## Library namespace
+Every part-library function is a global and is also on \`lib\` (for example \`lib.spurGear\`, \`lib.gearBodies.spoked\`).` },
   { id: 'lib', title: 'Part library', body: `# Part library
 
 - Stock: \`tube(ox, oy, oz, wall)\`, \`pipe(height, outerR, wall)\`, \`bracket(w, h, d, thick, holeDia)\`, \`holePattern(rows, cols, sx, sy, dia, depth)\`, \`tSlotExtrusion(length)\`, \`profile2020BSlot6(length)\`
