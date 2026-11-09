@@ -243,7 +243,7 @@ export function mirrorCopy(shape: Shape, normal: Vec3): Shape {
   return union(shape, shape.mirrorThrough([0, 0, 0], normal));
 }
 export function circularLayout(count: number, radius: number, o: { startDeg?: number; centerX?: number; centerY?: number } = {}) {
-  const out = [];
+  const out: any[] = [];
   for (let i = 0; i < count; i++) {
     const a = (((o.startDeg ?? 0) + (360 * i) / count) * Math.PI) / 180;
     out.push({ x: (o.centerX ?? 0) + radius * Math.cos(a), y: (o.centerY ?? 0) + radius * Math.sin(a), angle: (o.startDeg ?? 0) + (360 * i) / count });

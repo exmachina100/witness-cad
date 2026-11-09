@@ -1,32 +1,88 @@
 # Witness CAD
 
-Witness CAD is a React rebuild of [ForgeCAD](https://forgecad.io/): agentic, code-first parametric CAD that runs in the browser.
+Code-first parametric CAD in the browser. You write a model in JavaScript (`main.forge.js`), and Witness CAD builds it with a WASM solid kernel, shows it in a 3D viewport, checks it and exports it for printing, machining or robot simulation. AI agents use the same build-check-look loop through the built-in Agent panel or the MCP server.
 
-Models are written as JavaScript/TypeScript code, evaluated by a geometry kernel built on [manifold-3d](https://github.com/elalish/manifold), and rendered with three.js in a React UI with a CodeMirror editor.
+```js
+const w = Param.number("Width", 60, { min: 20, max: 200, unit: "mm" });
+const plate = fillet(box(w, 40, 4), 2);
+const holes = circularPattern(cylinder(5, 1.6).translate(w / 2 - 6, 0, -1), 4);
+verify.greaterThan("wide enough", w, 30);
+return plate.subtract(holes);
+```
 
-## Status
-
-Early development. The geometry kernel (solids, sketches, curves, assemblies, library) lives in `src/kernel/`.
-
-## Getting started
+## Run it
 
 ```bash
 npm install
-npm run dev        # start the Vite dev server
-npm test           # run the test suite
-npm run typecheck  # type-check the project
+npm run dev        # web app at http://localhost:5173
+npm run build      # static site in dist/
+npm test           # kernel, examples, renderer and store tests
 ```
 
-## Scripts
+Everything runs locally. Projects, versions, drafts and artifacts are kept in the browser (localStorage); Share creates a link that carries the whole project.
 
-| Script | What it does |
-| --- | --- |
-| `npm run dev` | Start the app in development mode |
-| `npm run build` | Type-check and build for production |
-| `npm run preview` | Preview the production build |
-| `npm test` | Run tests with Vitest |
-| `npm run mcp` | Start the MCP server for agent access |
-| `npm run cli` | Run the `witness` command line tool |
+## What is in the app
+
+- **Home**: projects, inbox (open drafts), shared, favorites, examples, trash; grid or list, search, sort; light, dark or system theme.
+- **Workspace top bar**: project name, version and draft picker, file search (⌘P), auto-build, rebuild (⌘↵), Run tests, screenshot, turntable video, Export, Share, help.
+- **Left rail**: Files (tree, root file, folders, import alias), Agent (Claude tool-use loop with your API key), Params (sliders, choices, joints, poses), 2D views (live slices and projections, SVG/DXF), Make (parts by process, BOM, drawings, manufacturing package), Artifacts (renders, videos, exports, uploads), Inspect (view presets, 11 inspect modes, section plane, objects, timeline, explode, animations, simulation, interference, joint torque, strength estimate).
+- **Viewport**: orbit/pan/zoom, 3D or flat, view presets, edges, measure, section, selection card with size/volume/area, joint sliders.
+- **Editor**: Monaco with API completions and inline build errors, tabs, console.
+
+## Modelling API
+
+Globals, no imports. Units are millimetres and degrees, Z is up, and `box()` is centred in XY and sits on z = 0.
+
+- Solids: `box`, `roundedBox`, `cylinder`, `cone`, `sphere`, `torus`, `wedge`, `polyhedron`, `hull`, booleans, `fillet`, `chamfer`, `draft`, `shell`, `hole`, `pocket`, `boss`, patterns, mirror, split/trim, face and edge queries.
+- Sketches: `rect`, `circle2d`, `roundedRect`, `polygon`, `ngon`, `slot`, `path()` builder, `constrainedSketch()` with a solver, `text2d`, offsets, extrude/revolve/loft/sweep.
+- Curves: lines, arcs, NURBS, splines, helices, 3D routes and tubes.
+- Assemblies: connectors, `assembly().addPart().connect()` with fixed, revolute, prismatic and other joints, coupled joints, poses, animations, springs, cables, collision and torque checks.
+- Simulation and analysis: physical materials, mass properties, joint-space dynamics with servo/spring drives, hand-calculation strength estimates.
+- Output: `verify.*` checks, `bom()`, `dim()`, labels, cut planes, exploded views.
+- Library: fasteners, gears (spur, ring, rack, bevel, face, planetary), pipes, T-slot extrusions, belt drives, wood joints, laser-cut parts.
+
+Full reference: open **Docs** in the app.
+
+## Export formats
+
+3MF, STL (binary and ASCII), GLB, OBJ, PLY, STEP (faceted B-rep), USD, URDF, MJCF (MuJoCo), SDF (Gazebo), part drawing SVG, BOM CSV and a manufacturing package zip.
+
+## MCP server
+
+```bash
+npm run mcp                   # stdio
+npm run mcp -- --http 8787    # streamable HTTP at http://localhost:8787/mcp
+claude mcp add witness-cad -- npx tsx /path/to/witness-cad/mcp/server.ts
+```
+
+Projects live in `~/.witness-cad/projects` (set `WITNESS_HOME` to move them). Tools: `read_docs`, `search_docs`, `list_projects`, `create_project`, `list_versions`, `create_draft`, `list_drafts`, `merge_draft`, `read_file`, `write_file`, `edit_file`, `save_version`, `build_model`, `build_variants`, `check_names`, `check_fit`, `check_assembly`, `check_joint_torque`, `check_strength`, `check_manufacturing`, `check_simready`, `read_make_list`, `compare_versions`, `view_model` (PNG from a headless renderer), `export_model`, `export_drawing`, `get_job`.
+
+## Command line
+
+```bash
+npm run cli -- build path/to/project
+npm run cli -- check path/to/project --set Width=120      # exit 1 on failed checks
+npm run cli -- export path/to/project --format 3mf --out part.3mf
+npm run cli -- render path/to/project --view iso --out part.png
+npm run cli -- params path/to/project
+```
+
+## Limits
+
+The kernel is mesh-based (Manifold). STEP export is a faceted B-rep, not exact NURBS surfaces. Strength checks are hand-calculation estimates, not a finite-element solve, and simulation integrates joint-space dynamics rather than full contact physics.
+
+## Layout
+
+```
+src/kernel   solid kernel, sketches, curves, assemblies, sim, params, runtime
+src/export   mesh, CAD, robot and document exporters
+src/render   headless PNG renderer
+src/app      React app (store, worker, viewport, editor, agent, UI)
+src/docs     in-app documentation
+mcp          MCP server and on-disk project store
+cli          command line
+tests        vitest suites
+```
 
 ## Workflow
 
