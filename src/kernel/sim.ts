@@ -134,7 +134,7 @@ export function simulate(asm: Assembly, o: { duration?: number; dt?: number; tar
       const pos = q[j.name] * toRad, vel = qd[j.name] * toRad;
       if (d.kind === 'servo') {
         const target = (o.targets?.[j.name] ?? d.target ?? base[j.name] ?? 0) * toRad;
-        const kp = (d.stiffnessNmPerDeg ?? 1) * (180 / Math.PI), kd = (d.servoDampingNmsPerDeg ?? d.stiffnessNmPerDeg * 0.05 ?? 0.05) * (180 / Math.PI);
+        const kp = (d.stiffnessNmPerDeg ?? 1) * (180 / Math.PI), kd = (d.servoDampingNmsPerDeg ?? (d.stiffnessNmPerDeg ?? 1) * 0.05) * (180 / Math.PI);
         let u = kp * (target - pos) - kd * vel;
         if (d.maxTorqueNm) u = Math.max(-d.maxTorqueNm, Math.min(d.maxTorqueNm, u));
         tau += u;

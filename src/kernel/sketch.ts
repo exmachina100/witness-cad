@@ -341,7 +341,7 @@ export function arcSlot(pitchRadius: number, sweepDeg: number, thickness: number
 export function stroke(points: any[], width: number, join: 'Round' | 'Square' = 'Round'): Sketch {
   const pts = points.map(toVec2);
   const k = K();
-  const parts = [];
+  const parts: any[] = [];
   for (let i = 0; i + 1 < pts.length; i++) {
     const [a, b] = [pts[i], pts[i + 1]];
     const dx = b[0] - a[0], dy = b[1] - a[1];
@@ -388,13 +388,13 @@ export function difference2d(...items: any[]) { const s = flat2(items); return s
 export function intersection2d(...items: any[]) { const s = flat2(items); return s[0].intersect(...s.slice(1)); }
 
 export function linearPattern2d(s: Sketch, count: number, dx: number, dy = 0): Sketch {
-  const parts = [];
+  const parts: any[] = [];
   for (let i = 0; i < count; i++) parts.push(s.translate(dx * i, dy * i));
   return union2d(parts);
 }
 export function circularPattern2d(s: Sketch, count: number, cxOrOpts: any = 0, cy = 0): Sketch {
   const o = typeof cxOrOpts === 'object' ? cxOrOpts : { centerX: cxOrOpts, centerY: cy };
-  const parts = [];
+  const parts: any[] = [];
   for (let i = 0; i < count; i++) parts.push(s.rotateAround((o.startDeg ?? 0) + (360 * i) / count, [o.centerX ?? 0, o.centerY ?? 0]));
   return union2d(parts);
 }
