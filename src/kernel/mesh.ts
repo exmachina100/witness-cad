@@ -20,7 +20,7 @@ export function toTriMesh(m: Manifold): TriMesh {
     positions[i * 3 + 2] = mesh.vertProperties[i * np + 2];
   }
   const runs: MeshRuns | undefined = mesh.runIndex && mesh.runOriginalID
-    ? { index: new Uint32Array(mesh.runIndex), ids: new Uint32Array(mesh.runOriginalID), xf: new Float32Array(mesh.runTransform) }
+    ? { index: new Uint32Array(mesh.runIndex), ids: new Uint32Array(mesh.runOriginalID), xf: new Float32Array(mesh.runTransform), faceID: mesh.faceID ? new Uint32Array(mesh.faceID) : undefined }
     : undefined;
   return { positions, indices: new Uint32Array(mesh.triVerts), runs };
 }

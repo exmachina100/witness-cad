@@ -11,16 +11,42 @@
 //      an interpolating cubic B-spline.
 // The result is written as AP214 ADVANCED_BREP geometry, which CAD tools open as true surfaces.
 import type { ExportMesh } from './mesh';
-import type { SurfaceDef } from '../kernel/surfaces';
-import { mat4, Mat4, v3, Vec3 } from '../kernel/math';
+import type { ProfileHint, SurfaceDef } from '../kernel/surfaces';
+import { mat4, Mat4, v3, Vec2, Vec3 } from '../kernel/math';
+import { closestOnSurface, NurbsSurface, surfaceNormal, transformSurfaceNurbs } from '../kernel/nurbs';
 
-type Surf = SurfaceDef;
+type Analytic = Exclude<SurfaceDef, { type: 'nurbs' }>;
+/**
+ * A surface in export coordinates: an analytic surface, a NURBS surface, or an analytic surface seen
+ * through a non-uniform scale (`mapped`, e.g. an elliptic cylinder or an ellipsoid), which is written
+ * out as an exact rational B-spline.
+ */
+export type Surf =
+  | Analytic
+  | { type: 'nurbs'; surf: NurbsSurface; tol: number; key: string; hint?: ProfileHint; M?: Mat4; Minv?: Mat4 }
+  | { type: 'mapped'; base: Analytic; M: Mat4; Minv: Mat4; tol: number; key: string; range?: [number, number] };
 
 export class BrepError extends Error {}
 
 // ------------------------------------------------------------------ surface maths
 
 function project(s: Surf, p: Vec3): Vec3 {
+  if (s.type === 'nurbs') return closestOnSurface(s.surf, p).p;
+  if (s.type === 'mapped') return mat4.apply(s.M, projectA(s.base, mat4.apply(s.Minv, p)));
+  return projectA(s, p);
+}
+
+function normalAt(s: Surf, p: Vec3): Vec3 {
+  if (s.type === 'nurbs') { const c = closestOnSurface(s.surf, p); return surfaceNormal(s.surf, c.u, c.v); }
+  if (s.type === 'mapped') {
+    const q = projectA(s.base, mat4.apply(s.Minv, p));
+    const n = normalAtA(s.base, q), m = s.Minv;
+    return v3.norm([m[0] * n[0] + m[1] * n[1] + m[2] * n[2], m[4] * n[0] + m[5] * n[1] + m[6] * n[2], m[8] * n[0] + m[9] * n[1] + m[10] * n[2]]);
+  }
+  return normalAtA(s, p);
+}
+
+function projectA(s: Analytic, p: Vec3): Vec3 {
   switch (s.type) {
     case 'plane': return v3.sub(p, v3.scale(s.normal, v3.dot(v3.sub(p, s.origin), s.normal)));
     case 'cylinder': {
@@ -57,7 +83,7 @@ function project(s: Surf, p: Vec3): Vec3 {
 }
 
 /** The surface's own normal (outward from the axis or centre; the plane's stored normal). */
-function normalAt(s: Surf, p: Vec3): Vec3 {
+function normalAtA(s: Analytic, p: Vec3): Vec3 {
   switch (s.type) {
     case 'plane': return s.normal;
     case 'cylinder': case 'cone': {
@@ -131,12 +157,13 @@ function runMatrix(xf: Float32Array, r: number): Mat4 {
   return m;
 }
 
-function transformSurface(s: Surf, m: Mat4): Surf | null {
+function transformSurface(s: SurfaceDef, m: Mat4, key: string): Surf | null {
   const c0: Vec3 = [m[0], m[1], m[2]], c1: Vec3 = [m[4], m[5], m[6]], c2: Vec3 = [m[8], m[9], m[10]];
   const l0 = v3.len(c0), l1 = v3.len(c1), l2 = v3.len(c2);
   const conformal = Math.abs(l0 - l1) < 1e-6 * l0 && Math.abs(l0 - l2) < 1e-6 * l0 &&
     Math.abs(v3.dot(c0, c1)) < 1e-6 * l0 * l1 && Math.abs(v3.dot(c0, c2)) < 1e-6 * l0 * l2 && Math.abs(v3.dot(c1, c2)) < 1e-6 * l1 * l2;
   const sc = l0;
+  if (s.type === 'nurbs') return { type: 'nurbs', surf: transformSurfaceNurbs(s.surf, m), tol: s.tol * Math.max(l0, l1, l2), key, hint: s.hint, M: m, Minv: mat4.invert(m) };
   const P = (p: Vec3) => mat4.apply(m, p);
   const D = (d: Vec3) => v3.norm(mat4.applyDir(m, d));
   if (s.type === 'plane') {
@@ -146,7 +173,7 @@ function transformSurface(s: Surf, m: Mat4): Surf | null {
     const n = v3.norm([inv[0] * s.normal[0] + inv[1] * s.normal[1] + inv[2] * s.normal[2], inv[4] * s.normal[0] + inv[5] * s.normal[1] + inv[6] * s.normal[2], inv[8] * s.normal[0] + inv[9] * s.normal[1] + inv[10] * s.normal[2]]);
     return { ...s, origin: P(s.origin), normal: n };
   }
-  if (!conformal) return null;
+  if (!conformal) return { type: 'mapped', base: s, M: m, Minv: mat4.invert(m), tol: s.tol * Math.max(l0, l1, l2), key };
   switch (s.type) {
     case 'cylinder': return { ...s, origin: P(s.origin), axis: D(s.axis), radius: s.radius * sc, tol: s.tol * sc };
     case 'cone': return { ...s, origin: P(s.origin), axis: D(s.axis), radius: s.radius * sc, tol: s.tol * sc };
@@ -157,6 +184,8 @@ function transformSurface(s: Surf, m: Mat4): Surf | null {
 
 function sameSurface(a: Surf, b: Surf, tol: number): boolean {
   if (a.type !== b.type) return false;
+  if (a.type === 'nurbs') return a.key === (b as typeof a).key || sameExtrusion(a, b as typeof a);
+  if (a.type === 'mapped') return a.key === (b as typeof a).key;
   const near = (x: number, y: number) => Math.abs(x - y) <= tol;
   const par = (x: Vec3, y: Vec3) => Math.abs(Math.abs(v3.dot(x, y)) - 1) < 1e-9;
   const onAxis = (o: Vec3, ax: Vec3, p: Vec3) => { const q = v3.sub(p, o); return v3.len(v3.sub(q, v3.scale(ax, v3.dot(q, ax)))) <= tol; };
@@ -173,6 +202,33 @@ function sameSurface(a: Surf, b: Surf, tol: number): boolean {
   }
 }
 
+type NurbsSurf = Extract<Surf, { type: 'nurbs' }>;
+const keyBase = (k: string) => k.slice(0, k.indexOf(':', k.indexOf(':') + 1));
+
+/**
+ * Two placements of the same extruded wall that differ only by a shift along the extrusion (an extrude
+ * unioned with a moved copy of itself, as shell() does) lie on one surface.
+ */
+function sameExtrusion(a: NurbsSurf, b: NurbsSurf): boolean {
+  if (a.hint?.mode !== 'extrude' || b.hint?.mode !== 'extrude' || !a.M || !b.M) return false;
+  if (keyBase(a.key) !== keyBase(b.key) || a.surf.nv !== 2 || b.surf.nv !== 2) return false;
+  for (let i = 0; i < 12; i++) if (i % 4 !== 3 && Math.abs(a.M[i] - b.M[i]) > 1e-9 * (1 + Math.abs(a.M[i]))) return false;
+  const d = v3.norm(mat4.applyDir(a.M, [0, 0, 1]));
+  const t: Vec3 = [b.M[12] - a.M[12], b.M[13] - a.M[13], b.M[14] - a.M[14]];
+  return v3.len(v3.sub(t, v3.scale(d, v3.dot(t, d)))) <= 1e-9 * (1 + v3.len(t));
+}
+
+/** Grow extrusion `a` along its direction so that it also spans `b` (see sameExtrusion). */
+function extendExtrusion(a: NurbsSurf, b: NurbsSurf): NurbsSurf {
+  const A = a.surf.ctrl, B = b.surf.ctrl;
+  const d = v3.sub(A[1], A[0]), dd = v3.dot(d, d);
+  if (dd < 1e-24) return a;
+  const lo = Math.min(0, v3.dot(v3.sub(B[0], A[0]), d) / dd), hi = Math.max(1, v3.dot(v3.sub(B[1], A[0]), d) / dd);
+  if (lo === 0 && hi === 1) return a;
+  const ctrl = A.map((p, i) => (i % 2 === 0 ? v3.add(p, v3.scale(d, lo)) : v3.add(A[i - 1], v3.scale(d, hi))));
+  return { ...a, surf: { ...a.surf, ctrl } };
+}
+
 // ------------------------------------------------------------------ topology
 
 export interface BrepVertex { p: Vec3 }
@@ -186,8 +242,35 @@ export interface BrepFace { surface: number; sense: boolean; loops: BrepLoop[]; 
 export interface BrepShell { faces: number[]; volume: number; min: Vec3; max: Vec3 }
 export interface Brep { surfaces: Surf[]; vertices: BrepVertex[]; edges: BrepEdge[]; faces: BrepFace[]; shells: BrepShell[]; curvedFaces: number }
 
+/**
+ * Remove zero-area slivers whose corners weld together (float rounding after booleans). The sliver's two
+ * remaining edges run a->c and c->a, so its neighbours pair up directly and the mesh stays closed.
+ */
+function dropDegenerate(mesh: ExportMesh, tv: Int32Array): ExportMesh & { degenerateFree: true } {
+  const nt = tv.length / 3;
+  const keep = new Uint8Array(nt);
+  const I: number[] = [];
+  for (let t = 0; t < nt; t++) {
+    const a = tv[t * 3], b = tv[t * 3 + 1], c = tv[t * 3 + 2];
+    if (a === b || b === c || a === c) continue;
+    keep[t] = 1;
+    I.push(mesh.indices[t * 3], mesh.indices[t * 3 + 1], mesh.indices[t * 3 + 2]);
+  }
+  let exact = mesh.exact;
+  if (exact) {
+    const R = exact.runs;
+    const before = new Uint32Array(nt + 1);
+    for (let t = 0; t < nt; t++) before[t + 1] = before[t] + keep[t];
+    const index = R.index.map((x) => before[x / 3] * 3);
+    let faceID: Uint32Array | undefined;
+    if (R.faceID) { const f: number[] = []; for (let t = 0; t < nt; t++) if (keep[t]) f.push(R.faceID[t]); faceID = new Uint32Array(f); }
+    exact = { ...exact, runs: { ...R, index, faceID } };
+  }
+  return { ...mesh, indices: new Uint32Array(I), exact, degenerateFree: true };
+}
+
 /** Rebuild an exact B-rep from one export mesh. Throws BrepError when the mesh is not a closed manifold. */
-export function buildBrep(mesh: ExportMesh): Brep {
+export function buildBrep(mesh: ExportMesh & { degenerateFree?: boolean }): Brep {
   const P = mesh.positions, I = mesh.indices;
   const nt = I.length / 3;
   if (!nt) throw new BrepError('empty mesh');
@@ -210,7 +293,10 @@ export function buildBrep(mesh: ExportMesh): Brep {
   for (let i = 0; i < nt * 3; i++) tv[i] = vmap[I[i]];
   for (let t = 0; t < nt; t++) {
     const a = tv[t * 3], b = tv[t * 3 + 1], c = tv[t * 3 + 2];
-    if (a === b || b === c || a === c) throw new BrepError('degenerate triangle');
+    if (a === b || b === c || a === c) {
+      if (mesh.degenerateFree) throw new BrepError('degenerate triangle');
+      return buildBrep(dropDegenerate(mesh, tv));
+    }
   }
   // Half-edges: h = t*3+k runs tv[h] -> tv[t*3+(k+1)%3].
   const tail = (h: number) => tv[h];
@@ -251,13 +337,19 @@ export function buildBrep(mesh: ExportMesh): Brep {
       case 'cone': return ['k', 0];
       case 'sphere': return ['s', Math.round(s.radius / q)];
       case 'torus': return ['t', Math.round(s.minor / q)];
+      case 'nurbs': return ['n' + (s.hint?.mode === 'extrude' ? keyBase(s.key) : s.key), 0];
+      default: return ['n' + s.key, 0];
     }
   };
   const addSurface = (s: Surf): number => {
     const tol = Math.max(ptol, 1e-9);
     const [t, k] = keyOf(s);
     for (const kk of [k - 1, k, k + 1])
-      for (const i of buckets.get(t + kk) ?? []) if (sameSurface(surfaces[i], s, tol)) return i;
+      for (const i of buckets.get(t + kk) ?? []) if (sameSurface(surfaces[i], s, tol)) {
+        const e = surfaces[i];
+        if (e.type === 'nurbs' && s.type === 'nurbs' && e.key !== s.key) surfaces[i] = extendExtrusion(e, s);
+        return i;
+      }
     surfaces.push(s);
     const id = surfaces.length - 1;
     const lst = buckets.get(t + k);
@@ -274,14 +366,24 @@ export function buildBrep(mesh: ExportMesh): Brep {
       let M = runMatrix(R.xf, r);
       if (ex.transform) M = mat4.mul(ex.transform, M);
       const planes: number[] = [], curved: number[] = [];
-      for (const d of defs) {
-        const s = transformSurface(d, M);
-        if (!s) continue;
+      const tags = new Map<number, number>();
+      defs.forEach((d, di) => {
+        const s = transformSurface(d, M, `${R.ids[r]}:${di}:${M.map((x) => x.toFixed(9)).join(',')}`);
+        if (!s) return;
         const id = addSurface(s);
-        (s.type === 'plane' ? planes : curved).push(id);
-      }
+        if (d.tag !== undefined) tags.set(d.tag, id);
+        else (s.type === 'plane' ? planes : curved).push(id);
+      });
+      const Minv = mat4.invert(M);
+      const lscale = Math.cbrt(Math.abs(det3(M))) || 1;
+      const ltol = ptol / lscale;
+      const fid = R.faceID;
       const t0 = R.index[r] / 3, t1 = R.index[r + 1] / 3;
       for (let t = t0; t < t1; t++) {
+        if (fid && tags.size) {
+          const id = tags.get(fid[t]);
+          if (id !== undefined) { triSurf[t] = id; continue; }
+        }
         const vs = [pos[tv[t * 3]], pos[tv[t * 3 + 1]], pos[tv[t * 3 + 2]]];
         let best = -1, bestD = Infinity;
         const tn = triN[t], big = triA[t] > 1e-10 * Math.max(1, maxAbs * maxAbs);
@@ -294,15 +396,41 @@ export function buildBrep(mesh: ExportMesh): Brep {
           for (const v of vs) d = Math.max(d, Math.abs(n[0] * v[0] + n[1] * v[1] + n[2] * v[2] - off));
           if (d <= ptol && d < bestD) { best = id; bestD = d; }
         }
-        if (best < 0)
+        if (best < 0 && curved.length) {
+          let local: Vec3[] | null = null, ln: Vec3 | null = null;
+          const loc = () => {
+            if (!local) {
+              local = vs.map((v) => mat4.apply(Minv, v));
+              const cr = v3.cross(v3.sub(local[1], local[0]), v3.sub(local[2], local[0]));
+              ln = v3.len(cr) > 0 ? v3.norm(cr) : [0, 0, 0];
+            }
+            return { L: local!, n: ln! };
+          };
           for (const id of curved) {
             const s = surfaces[id];
-            const tol = Math.max(ptol, s.tol);
-            const d = Math.max(dist(s, vs[0]), dist(s, vs[1]), dist(s, vs[2]));
-            if (d > tol || d >= bestD) continue;
-            if (triA[t] > 1e-12 * Math.max(1, maxAbs * maxAbs) && Math.abs(v3.dot(triN[t], normalAt(s, project(s, triC[t])))) < 0.7) continue;
+            let d: number;
+            if (s.type === 'nurbs') {
+              if (!s.hint) continue;
+              const { L, n } = loc();
+              d = hintDistance(s.hint, L, n) * lscale;
+              if (d > Math.max(ptol, s.tol)) continue;
+            } else if (s.type === 'mapped') {
+              const { L, n } = loc();
+              const b = s.base;
+              d = Math.max(...L.map((v) => v3.dist(v, projectA(b, v))));
+              if (d > Math.max(ltol, b.tol)) continue;
+              const c = v3.scale(v3.add(v3.add(L[0], L[1]), L[2]), 1 / 3);
+              if (big && Math.abs(v3.dot(n, normalAtA(b, projectA(b, c)))) < 0.7) continue;
+              d *= lscale;
+            } else {
+              d = Math.max(dist(s, vs[0]), dist(s, vs[1]), dist(s, vs[2]));
+              if (d > Math.max(ptol, s.tol)) continue;
+              if (triA[t] > 1e-12 * Math.max(1, maxAbs * maxAbs) && Math.abs(v3.dot(triN[t], normalAt(s, project(s, triC[t])))) < 0.7) continue;
+            }
+            if (d >= bestD) continue;
             best = id; bestD = d;
           }
+        }
         triSurf[t] = best;
       }
     }
@@ -338,6 +466,27 @@ export function buildBrep(mesh: ExportMesh): Brep {
     }
   }
 
+  // Stretched cylinders and cones are written as finite B-spline patches: find how far along the axis they reach.
+  for (let t = 0; t < nt; t++) {
+    const s = surfaces[triSurf[t]];
+    if (s.type !== 'mapped' || (s.base.type !== 'cylinder' && s.base.type !== 'cone')) continue;
+    const b = s.base;
+    for (let k = 0; k < 3; k++) {
+      const h = v3.dot(v3.sub(mat4.apply(s.Minv, pos[tv[t * 3 + k]]), b.origin), b.axis);
+      s.range = s.range ? [Math.min(s.range[0], h), Math.max(s.range[1], h)] : [h, h];
+    }
+  }
+  for (const s of surfaces)
+    if (s.type === 'mapped' && s.range) {
+      const pad = Math.max(1e-6, (s.range[1] - s.range[0]) * 0.02);
+      s.range = [s.range[0] - pad, s.range[1] + pad];
+      if (s.base.type === 'cone') {
+        // never run past the apex
+        const apex = -s.base.radius / s.base.slope;
+        if (s.range[0] < apex) s.range[0] = apex;
+      }
+    }
+
   // ---- 2. faces: connected triangles on the same surface
   const faceOf = new Int32Array(nt).fill(-1);
   const faces: BrepFace[] = [];
@@ -356,7 +505,9 @@ export function buildBrep(mesh: ExportMesh): Brep {
     }
     const s = surfaces[triSurf[t]];
     let sense = 0;
-    for (const u of tris) sense += triA[u] * v3.dot(triN[u], normalAt(s, project(s, triC[u])));
+    // free-form surfaces need a closest-point search per sample, so sample the largest triangles only
+    const sample = s.type === 'nurbs' || s.type === 'mapped' ? [...tris].sort((a, b) => triA[b] - triA[a]).slice(0, 24) : tris;
+    for (const u of sample) sense += triA[u] * v3.dot(triN[u], normalAt(s, project(s, triC[u])));
     faces.push({ surface: triSurf[t], sense: sense >= 0, loops: [] });
     faceTris.push(tris);
   }
@@ -426,7 +577,16 @@ export function buildBrep(mesh: ExportMesh): Brep {
     const bothPlanar = sA.type === 'plane' && sB.type === 'plane';
     if (bothPlanar && v0 !== v1) return { v0, v1, curve: { type: 'line', p: vertices[v0].p, d: v3.norm(v3.sub(vertices[v1].p, vertices[v0].p)) } as CurveGeom };
     const pts: Vec3[] = c.verts.map((v, i) => (i === 0 ? vertices[v0].p : i === c.verts.length - 1 ? vertices[v1].p : projectAll([sA, sB], pos[v])));
-    return { v0, v1, curve: fitCurve(pts, v0 === v1, bothPlanar, ptol) };
+    const curve = fitCurve(pts, v0 === v1, bothPlanar, ptol);
+    if (curve.type !== 'bspline' || pts.length > 300) return { v0, v1, curve };
+    // A free-form intersection: add exact points between the mesh points before fitting the spline.
+    const k = Math.max(1, Math.min(4, Math.floor(300 / pts.length)));
+    const dense: Vec3[] = [pts[0]];
+    for (let i = 1; i < pts.length; i++) {
+      for (let j = 1; j < k; j++) dense.push(projectAll([sA, sB], v3.lerp(pts[i - 1], pts[i], j / k), 30));
+      dense.push(pts[i]);
+    }
+    return { v0, v1, curve: interpolate(dense) };
   });
 
   // Loops
@@ -483,6 +643,46 @@ export function buildBrep(mesh: ExportMesh): Brep {
       const e0 = mk(u0), e1 = mk(u1);
       f.loops.push({ edges: [{ edge: e0, forward: f.sense }] }, { edges: [{ edge: e1, forward: !f.sense }] });
       extraFaces.push({ surface: f.surface, sense: f.sense, loops: [{ edges: [{ edge: e0, forward: !f.sense }] }, { edges: [{ edge: e1, forward: f.sense }] }] });
+    } else if (s.type === 'mapped' && (s.base.type === 'sphere' || s.base.type === 'torus')) {
+      // a whole stretched sphere or torus: split it like the round ones, with spline seams
+      const b = s.base;
+      const ring = (c: Vec3, axis: Vec3, ref: Vec3, r: number) => {
+        const y = v3.cross(axis, ref), pts: Vec3[] = [];
+        for (let i = 0; i <= 64; i++) {
+          const a = (i / 64) * 2 * Math.PI;
+          pts.push(mat4.apply(s.M, v3.add(c, v3.add(v3.scale(ref, r * Math.cos(a)), v3.scale(y, r * Math.sin(a))))));
+        }
+        pts[64] = pts[0];
+        const v = vertices.push({ p: pts[0] }) - 1;
+        return edges.push({ v0: v, v1: v, curve: interpolate(pts) }) - 1;
+      };
+      if (b.type === 'sphere') {
+        const e = ring(b.center, [0, 0, 1], [1, 0, 0], b.radius);
+        // mapping may mirror: orientation follows the mapped axis direction
+        const fw = det3(s.M) > 0 ? f.sense : !f.sense;
+        // Spline surfaces need an explicit seam: a meridian from the equator start to each pole,
+        // along the u = 0 line of the spline sphere.
+        const v0 = edges[e].v0;
+        const seam = (dir: 1 | -1) => {
+          const pts: Vec3[] = [];
+          for (let i = 0; i <= 32; i++) {
+            const a = (dir * (i / 32) * Math.PI) / 2;
+            pts.push(mat4.apply(s.M, v3.add(b.center, [b.radius * Math.cos(a), 0, b.radius * Math.sin(a)])));
+          }
+          const pole = vertices.push({ p: pts[32] }) - 1;
+          return edges.push({ v0, v1: pole, curve: interpolate(pts) }) - 1;
+        };
+        const sn = seam(1), ss = seam(-1);
+        f.loops.push({ edges: [{ edge: e, forward: fw }, { edge: sn, forward: true }, { edge: sn, forward: false }] });
+        extraFaces.push({ surface: f.surface, sense: f.sense, loops: [{ edges: [{ edge: e, forward: !fw }, { edge: ss, forward: true }, { edge: ss, forward: false }] }] });
+      } else {
+        const u0 = v3.perp(b.axis), u1 = v3.scale(u0, -1);
+        const mk = (u: Vec3) => ring(v3.add(b.center, v3.scale(u, b.major)), v3.norm(v3.cross(b.axis, u)), u, b.minor);
+        const e0 = mk(u0), e1 = mk(u1);
+        const fw = det3(s.M) > 0 ? f.sense : !f.sense;
+        f.loops.push({ edges: [{ edge: e0, forward: fw }] }, { edges: [{ edge: e1, forward: !fw }] });
+        extraFaces.push({ surface: f.surface, sense: f.sense, loops: [{ edges: [{ edge: e0, forward: !fw }] }, { edges: [{ edge: e1, forward: fw }] }] });
+      }
     } else throw new BrepError(`unbounded ${s.type} face`);
   }
 
@@ -546,6 +746,46 @@ export function buildBrep(mesh: ExportMesh): Brep {
 }
 
 function dedupe(ss: Surf[]): Surf[] { return [...new Set(ss)]; }
+
+function det3(m: Mat4): number {
+  return m[0] * (m[5] * m[10] - m[9] * m[6]) - m[4] * (m[1] * m[10] - m[9] * m[2]) + m[8] * (m[1] * m[6] - m[5] * m[2]);
+}
+
+function segDist2(p: Vec2, a: Vec2, b: Vec2): number {
+  const dx = b[0] - a[0], dy = b[1] - a[1];
+  const l2 = dx * dx + dy * dy;
+  let t = l2 > 0 ? ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  const x = a[0] + t * dx - p[0], y = a[1] + t * dy - p[1];
+  return x * x + y * y;
+}
+
+/**
+ * How far a triangle (in the surface's local frame) is from the profile it was swept from; Infinity
+ * when its orientation rules it out (an extrusion's caps lie on the profile too but face along z).
+ */
+function hintDistance(h: ProfileHint, L: Vec3[], n: Vec3): number {
+  if (h.mode === 'extrude') {
+    if (Math.abs(n[2]) > 0.5) return Infinity;
+    const e = 1e-9 * Math.max(1, Math.abs(h.z1));
+    let d = 0;
+    for (const v of L) {
+      if (v[2] < h.z0 - e - 1e-6 || v[2] > h.z1 + e + 1e-6) return Infinity;
+      let m = Infinity;
+      for (let i = 0; i + 1 < h.poly.length; i++) m = Math.min(m, segDist2([v[0], v[1]], h.poly[i], h.poly[i + 1]));
+      d = Math.max(d, Math.sqrt(m));
+    }
+    return d;
+  }
+  let d = 0;
+  for (const v of L) {
+    const q: Vec2 = [Math.hypot(v[0], v[1]), v[2]];
+    let m = Infinity;
+    for (let i = 0; i + 1 < h.poly.length; i++) m = Math.min(m, segDist2(q, h.poly[i], h.poly[i + 1]));
+    d = Math.max(d, Math.sqrt(m));
+  }
+  return d;
+}
 
 /**
  * Faces on cylinders, cones and spheres that wrap all the way around (a hole wall, a shaft, a dome)
@@ -674,7 +914,10 @@ function fitCurve(pts: Vec3[], closed: boolean, bothPlanar: boolean, tol: number
   const uniq = closed ? pts.slice(0, -1) : pts;
   if (uniq.length >= 3) {
     const circ = fitCircle(uniq, tol);
-    if (circ) {
+    // a nearly straight edge can "fit" a circle of enormous radius; that is not a real arc
+    let ext = 0;
+    for (const p of uniq) ext = Math.max(ext, v3.dist(p, uniq[0]));
+    if (circ && circ.r <= 1e3 * Math.max(ext, tol)) {
       let axis = circ.axis;
       const ref = v3.norm(v3.sub(a, circ.c));
       if (v3.dot(v3.cross(v3.sub(uniq[0], circ.c), v3.sub(uniq[1], circ.c)), axis) < 0) axis = v3.scale(axis, -1);
@@ -712,7 +955,7 @@ function fitCircle(pts: Vec3[], tol: number): { c: Vec3; axis: Vec3; r: number }
 /** Cubic B-spline through the points (chord-length parameters, averaged knots). */
 function interpolate(input: Vec3[]): CurveGeom {
   let pts = input;
-  const MAX = 160;
+  const MAX = 320;
   if (pts.length > MAX) {
     const s: Vec3[] = [];
     for (let i = 0; i < MAX; i++) s.push(pts[Math.round((i * (pts.length - 1)) / (MAX - 1))]);

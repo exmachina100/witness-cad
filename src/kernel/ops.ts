@@ -6,6 +6,14 @@ import { allocations, EdgeSegment, flatShapes, Shape } from './shape';
 import { DEFAULT_SEGMENTS, Sketch } from './sketch';
 import { ForgeError } from './errors';
 import { featureEdges } from './mesh';
+import { minkowskiSurfaces, registerSurfaces } from './surfaces';
+
+/** Minkowski sum with a ball, tagged with its exact faces, edge cylinders and corner spheres. */
+export function roundedSum(core: Manifold, r: number, seg: number): Manifold {
+  const out = core.minkowskiSum(K().Manifold.sphere(r, seg)).asOriginal();
+  try { registerSurfaces(out, minkowskiSurfaces(core, r, seg)); } catch { /* best effort */ }
+  return out;
+}
 
 // ---------------------------------------------------------------- primitives
 export function box(w: number, d: number, h: number): Shape {
@@ -29,7 +37,7 @@ export function roundedBox(w: number, d: number, h: number, r: number): Shape {
   if (r <= 0) return box(w, d, h);
   const k = K();
   const core = k.Manifold.cube([w - 2 * r, d - 2 * r, h - 2 * r], true);
-  const m = core.minkowskiSum(k.Manifold.sphere(r, DEFAULT_SEGMENTS.value)).translate([0, 0, h / 2]);
+  const m = roundedSum(core, r, DEFAULT_SEGMENTS.value).translate([0, 0, h / 2]);
   allocations.list?.push(core);
   return new Shape(m, { faces: box(w, d, h).faceLabels });
 }
@@ -187,9 +195,10 @@ export function fillet(shape: Shape, radius: number, edges?: any, options?: any)
   // Whole-solid rounding of convex shapes: Minkowski of an eroded core gives true spherical corners.
   if (edges == null && isConvex(shape)) {
     const k = K();
-    const ball = k.Manifold.sphere(radius, options?.segments ?? Math.max(16, DEFAULT_SEGMENTS.value / 2));
+    const seg = options?.segments ?? Math.max(16, DEFAULT_SEGMENTS.value / 2);
+    const ball = k.Manifold.sphere(radius, seg);
     const core = shape.m.minkowskiDifference(ball);
-    if (!core.isEmpty()) return shape.derive(core.minkowskiSum(ball));
+    if (!core.isEmpty()) return shape.derive(roundedSum(core, radius, seg));
   }
   return applyEdgeTools(shape, radius, edges, 'fillet', options);
 }
@@ -219,8 +228,9 @@ export function draft(shape: Shape, angleDeg: number, pull: Vec3 = [0, 0, 1], ne
 }
 
 export function offsetSolid(shape: Shape, thickness: number): Shape {
+  if (thickness >= 0) return shape.derive(roundedSum(shape.m, thickness, 16));
   const ball = K().Manifold.sphere(Math.abs(thickness), 16);
-  return shape.derive(thickness >= 0 ? shape.m.minkowskiSum(ball) : shape.m.minkowskiDifference(ball));
+  return shape.derive(shape.m.minkowskiDifference(ball));
 }
 
 // ---------------------------------------------------------------- patterns

@@ -1,6 +1,7 @@
 // STEP AP214 writer for exact B-rep solids (ADVANCED_BREP_SHAPE_REPRESENTATION).
 import type { ExportMesh } from './mesh';
-import { Brep, buildBrep, BrepError, CurveGeom } from './brep';
+import { Brep, buildBrep, BrepError, CurveGeom, Surf } from './brep';
+import { NurbsSurface, nurbsCone, nurbsCylinder, nurbsSphere, nurbsTorus, transformSurfaceNurbs } from '../kernel/nurbs';
 import { v3, Vec3 } from '../kernel/math';
 
 export const escStep = (s: string) => s.replace(/'/g, "''").replace(/[^\x20-\x7e]/g, '_');
@@ -92,6 +93,51 @@ function writeCurve(W: Writer, c: CurveGeom): number {
   }
 }
 
+function toNurbs(s: Surf): NurbsSurface {
+  if (s.type === 'nurbs') return s.surf;
+  if (s.type !== 'mapped') throw new BrepError(`no spline form for ${s.type}`);
+  const b = s.base;
+  let n: NurbsSurface;
+  switch (b.type) {
+    case 'cylinder': n = nurbsCylinder(b.origin, b.axis, b.radius, s.range?.[0] ?? 0, s.range?.[1] ?? 1); break;
+    case 'cone': n = nurbsCone(b.origin, b.axis, b.radius, b.slope, s.range?.[0] ?? -b.radius / b.slope, s.range?.[1] ?? 0); break;
+    case 'sphere': n = nurbsSphere(b.center, b.radius); break;
+    case 'torus': n = nurbsTorus(b.center, b.axis, b.major, b.minor); break;
+    default: throw new BrepError(`no spline form for ${b.type}`);
+  }
+  return transformSurfaceNurbs(n, s.M);
+}
+
+function knotList(U: number[]): { knots: number[]; mults: number[] } {
+  const knots: number[] = [], mults: number[] = [];
+  for (const x of U) {
+    if (knots.length && Math.abs(knots[knots.length - 1] - x) < 1e-14) mults[mults.length - 1]++;
+    else { knots.push(x); mults.push(1); }
+  }
+  return { knots, mults };
+}
+
+function writeNurbsSurface(W: Writer, s: NurbsSurface): number {
+  const rows: string[] = [];
+  for (let i = 0; i < s.nu; i++) {
+    const ids: number[] = [];
+    for (let j = 0; j < s.nv; j++) ids.push(W.point(s.ctrl[i * s.nv + j]));
+    rows.push(ref(ids));
+  }
+  const ku = knotList(s.knotsU), kv = knotList(s.knotsV);
+  const knotPart = `(${ku.mults.join(',')}),(${kv.mults.join(',')}),(${ku.knots.map(stepReal).join(',')}),(${kv.knots.map(stepReal).join(',')}),.UNSPECIFIED.`;
+  const w = s.weights;
+  if (!w || w.every((x) => Math.abs(x - 1) < 1e-15))
+    return W.add(`B_SPLINE_SURFACE_WITH_KNOTS('',${s.degU},${s.degV},(${rows.join(',')}),.UNSPECIFIED.,.F.,.F.,.F.,${knotPart})`);
+  const wrows: string[] = [];
+  for (let i = 0; i < s.nu; i++) {
+    const r: string[] = [];
+    for (let j = 0; j < s.nv; j++) r.push(stepReal(w[i * s.nv + j]));
+    wrows.push(`(${r.join(',')})`);
+  }
+  return W.add(`(BOUNDED_SURFACE()B_SPLINE_SURFACE(${s.degU},${s.degV},(${rows.join(',')}),.UNSPECIFIED.,.F.,.F.,.F.)B_SPLINE_SURFACE_WITH_KNOTS(${knotPart})GEOMETRIC_REPRESENTATION_ITEM()RATIONAL_B_SPLINE_SURFACE((${wrows.join(',')}))REPRESENTATION_ITEM('')SURFACE())`);
+}
+
 /** Writes every shell of the B-rep; returns the solid entity ids (voids are folded into their solid). */
 function writeSolids(W: Writer, b: Brep, name: string): number[] {
   const surfIds = new Map<number, number>();
@@ -105,6 +151,7 @@ function writeSolids(W: Writer, b: Brep, name: string): number[] {
       case 'cone': id = W.add(`CONICAL_SURFACE('',#${W.placement(s.origin, s.axis)},${stepReal(s.radius)},${stepReal(Math.atan(s.slope))})`); break;
       case 'sphere': id = W.add(`SPHERICAL_SURFACE('',#${W.placement(s.center, [0, 0, 1], [1, 0, 0])},${stepReal(s.radius)})`); break;
       case 'torus': id = W.add(`TOROIDAL_SURFACE('',#${W.placement(s.center, s.axis)},${stepReal(s.major)},${stepReal(s.minor)})`); break;
+      default: id = writeNurbsSurface(W, toNurbs(s)); break;
     }
     surfIds.set(i, id!);
     return id!;
