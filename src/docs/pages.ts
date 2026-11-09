@@ -319,7 +319,9 @@ claude mcp add witness-cad -- npx tsx mcp/server.ts
 
 Projects live in \`~/.witness-cad/projects\` (override with WITNESS_HOME).
 
-Tools: read_docs, search_docs, list_projects, create_project, list_versions, create_draft, list_drafts, merge_draft, read_file, write_file, edit_file, save_version, build_model, build_variants, check_names, check_fit, check_assembly, check_joint_torque, check_strength, check_manufacturing, check_simready, simulate_model, check_hold, read_make_list, compare_versions, view_model, export_model, export_drawing, get_job.
+Tools: read_docs, search_docs, list_projects, create_project, list_versions, create_draft, list_drafts, merge_draft, read_file, write_file, edit_file, save_version, build_model, build_variants, check_names, check_fit, check_assembly, check_joint_torque, check_strength, check_manufacturing, check_simready, simulate_model, check_hold, read_make_list, compare_versions, compare_to_reference, check_surfaces, paint_model, view_model, render_picture, render_video, read_version_picture, get_link, export_model, export_drawing, get_job.
+
+\`paint_model\` writes \`paint.json\` (\`{ "object name": "#rrggbb", "*": "#…" }\`), which overrides colours set in code. \`compare_to_reference\` compares the model with a saved version or an STL/OBJ/3MF/STEP file in the project. \`create_draft\` can copy another draft with \`from_draft\`.
 
 Recommended loop: read the docs, pick or create a project, create a draft from a version, edit → build_model → checks → view_model until the acceptance criteria pass, then save_version (or merge_draft).` },
   { id: 'cli', title: 'Command line', body: `# Command line
@@ -333,6 +335,10 @@ npm run cli -- check path/to/project            # exit code 1 when a verify chec
 npm run cli -- sim path/to/project --seconds 2   # rigid-body dynamics summary
 npm run cli -- sim path/to/project --hold lid=0.3 --max-travel 3   # hold test, exit 1 if it gives
 npm run cli -- params path/to/project --set Width=120
+npm run cli -- check path/to/project --combinations "Width=60,120;Height=6,12"   # every combination
+npm run cli -- check path/to/project --variants variants.json   # [{ "Width": 60 }, ...]
+npm run cli -- export path/to/project --format dxf --view top   # or svg, dxf-section --at 5
+npm run cli -- video path/to/project --out turntable.gif
 \`\`\`
 A project path is a folder with \`main.forge.js\` (and any helper files) or a single \`.forge.js\` file.` },
 ];

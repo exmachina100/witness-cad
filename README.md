@@ -39,13 +39,19 @@ Globals, no imports. Units are millimetres and degrees, Z is up, and `box()` is 
 - Assemblies: connectors, `assembly().addPart().connect()` with fixed, revolute, prismatic and other joints, coupled joints, poses, animations, springs, cables, collision and torque checks.
 - Simulation and analysis: physical materials, mass properties, rigid-body dynamics (gravity, convex-hull contacts with friction and restitution, ground plane, joints as constraints with limits, servo/velocity/spring drives, free bases and closed loops), drop and hold tests, a joint-space preview, and linear static finite element analysis (`Fea.study.staticStress`: fixtures, force/pressure/torque/gravity loads, von Mises stress, displacement, safety factor). `npm run cli -- strength <project>` runs it from the command line.
 - Output: `verify.*` checks, `bom()`, `dim()`, labels, cut planes, exploded views.
+- Surfaces: `Surface.*` sheets (loft, sweep, patch, NURBS, ...), sewing into solids, `Blend.*`, `Analysis.*` continuity and curvature, `Thickness.*`, `Sculpt` control cages, `Product` skins, carriers and surface members.
+- Fabrication: `sheetMetal()` with flanges and flat patterns, `SheetMetal.ruleFromGauge`, `Laser` panels, tab-and-slot, kits with sheet nesting and instructions, wood joinery.
 - Library: fasteners, gears (spur, ring, rack, bevel, face, planetary), pipes, T-slot extrusions, belt drives, wood joints, laser-cut parts.
 
 Full reference: open **Docs** in the app.
 
+## Imports
+
+DXF and SVG outlines (`Import.dxfSketch`, `Import.svgSketch`), STL / OBJ / 3MF / PLY meshes (`Import.mesh`) and STEP solids (`Import.step`, via OpenCascade, loaded only when a project uses STEP). Add files with **Files > Import**.
+
 ## Export formats
 
-3MF, STL (binary and ASCII), GLB, OBJ, PLY, STEP (exact B-rep), USD, URDF, MJCF (MuJoCo), SDF (Gazebo), part drawing SVG, BOM CSV and a manufacturing package zip.
+3MF, STL (binary and ASCII), GLB, OBJ, PLY, STEP (exact B-rep), DXF and SVG outlines (projection or section), USD, URDF, MJCF (MuJoCo), SDF (Gazebo), part drawing SVG, BOM CSV and a manufacturing package zip.
 
 ## MCP server
 
@@ -55,7 +61,7 @@ npm run mcp -- --http 8787    # streamable HTTP at http://localhost:8787/mcp
 claude mcp add witness-cad -- npx tsx /path/to/witness-cad/mcp/server.ts
 ```
 
-Projects live in `~/.witness-cad/projects` (set `WITNESS_HOME` to move them). Tools: `read_docs`, `search_docs`, `list_projects`, `create_project`, `list_versions`, `create_draft`, `list_drafts`, `merge_draft`, `read_file`, `write_file`, `edit_file`, `save_version`, `build_model`, `build_variants`, `check_names`, `check_fit`, `check_assembly`, `check_joint_torque`, `check_strength`, `check_manufacturing`, `check_simready` (includes a short dynamics run), `simulate_model`, `check_hold`, `read_make_list`, `compare_versions`, `view_model` (PNG from a headless renderer), `export_model`, `export_drawing`, `get_job`.
+Projects live in `~/.witness-cad/projects` (set `WITNESS_HOME` to move them). Tools: `read_docs`, `search_docs`, `list_projects`, `create_project`, `list_versions`, `create_draft`, `list_drafts`, `merge_draft`, `read_file`, `write_file`, `edit_file`, `save_version`, `build_model`, `build_variants`, `check_names`, `check_fit`, `check_assembly`, `check_joint_torque`, `check_strength`, `check_manufacturing`, `check_simready` (includes a short dynamics run), `simulate_model`, `check_hold`, `read_make_list`, `compare_versions`, `compare_to_reference`, `check_surfaces`, `paint_model`, `view_model` (PNG from a headless renderer), `render_picture`, `render_video` (turntable GIF), `read_version_picture`, `get_link`, `export_model`, `export_drawing`, `get_job`.
 
 ## Command line
 
@@ -64,6 +70,9 @@ npm run cli -- build path/to/project
 npm run cli -- check path/to/project --set Width=120      # exit 1 on failed checks
 npm run cli -- export path/to/project --format 3mf --out part.3mf
 npm run cli -- render path/to/project --view iso --out part.png
+npm run cli -- video path/to/project --out turntable.gif
+npm run cli -- check path/to/project --combinations "Width=60,120;Height=6,12"
+npm run cli -- export path/to/project --format dxf --view section --at 5
 npm run cli -- params path/to/project
 npm run cli -- sim path/to/project --seconds 2 --target shoulder=80   # rigid-body dynamics
 npm run cli -- sim path/to/project --hold open=-0.3 --max-travel 3    # hold test

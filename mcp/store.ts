@@ -27,7 +27,8 @@ export function readFiles(dir: string): Record<string, string> {
     for (const n of readdirSync(d)) {
       const p = join(d, n);
       if (statSync(p).isDirectory()) { if (n !== 'node_modules' && !n.startsWith('.')) walk(p); }
-      else if (/\.(js|json|md|txt|svg|csv)$/.test(n)) out[relative(dir, p).replace(/\\/g, '/')] = readFileSync(p, 'utf8');
+      else if (/\.(js|json|md|txt|svg|csv|dxf|obj|ply|step|stp)$/i.test(n)) out[relative(dir, p).replace(/\\/g, '/')] = readFileSync(p, 'utf8');
+      else if (/\.(stl|3mf)$/i.test(n)) { const b = readFileSync(p); const ascii = /\.stl$/i.test(n) && /^solid\s/.test(b.subarray(0, 6).toString('latin1')) && !b.subarray(0, 512).some((x) => x === 0); out[relative(dir, p).replace(/\\/g, '/')] = ascii ? b.toString('utf8') : `data:application/octet-stream;base64,${b.toString('base64')}`; }
     }
   };
   walk(dir);
@@ -35,7 +36,7 @@ export function readFiles(dir: string): Record<string, string> {
 }
 function writeAll(dir: string, files: Record<string, string>) {
   rmSync(dir, { recursive: true, force: true });
-  for (const [k, v] of Object.entries(files)) { const p = join(dir, safe(k)); mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, v); }
+  for (const [k, v] of Object.entries(files)) { const p = join(dir, safe(k)); mkdirSync(dirname(p), { recursive: true }); const m = /^data:[^;,]*;base64,(.*)$/s.exec(v); writeFileSync(p, m && /\.(stl|3mf)$/i.test(k) ? Buffer.from(m[1], 'base64') : v); }
 }
 
 export const store = {
@@ -65,7 +66,8 @@ export const store = {
     if (draftId) { const d = m.drafts.find((x) => x.id === draftId); if (!d) throw new Error(`no draft "${draftId}"`); d.files[path] = content; writeMeta(m); return; }
     const p = join(projectDir(id), 'files', path);
     mkdirSync(dirname(p), { recursive: true });
-    writeFileSync(p, content);
+    const b64 = /^data:[^;,]*;base64,(.*)$/s.exec(content);
+    writeFileSync(p, b64 && /\.(stl|3mf)$/i.test(path) ? Buffer.from(b64[1], 'base64') : content);
     writeMeta(m);
   },
   saveVersion(id: string, name: string, note?: string, draftId?: string): DiskVersion {
