@@ -253,7 +253,7 @@ function collect(v: any, name: string, out: SceneObject[], asms: AssemblyInfo[],
   if (v instanceof Shape) { if (!v.isEmpty()) out.push(solidObject(v, v.name ?? nm, c)); return; }
   if (v instanceof Sketch) { out.push({ id: `o${++objCounter}`, name: nm, kind: 'sketch', lines: sketchLines(v), color: v.color_, mock: c.mocks.has(v) }); return; }
   if (v instanceof ConstraintSketch) { collect(v.toSketch(), nm, out, asms, c); return; }
-  if (v?.kind === 'sheetMetal' || v?.kind === 'surfaceBody') { collect(v.toShape(), nm, out, asms, c); return; }
+  if (v?.kind === 'sheetMetal' || v?.kind === 'surfaceBody' || v?.kind === 'surfaceSheet' || v?.kind === 'productSkin') { collect(v.toShape(), nm, out, asms, c); return; }
   if (v?.kind === 'laserKit') { collect(v.parts.map((p: any) => p.shape), nm, out, asms, c); return; }
   if (v instanceof Curve3D) {
     const pts = v.sample(200);

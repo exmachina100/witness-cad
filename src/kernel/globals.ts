@@ -17,6 +17,7 @@ import { text2d, textWidth, loadFont } from './text';
 import { constrainedSketch } from './constraints';
 import { Import } from './importers';
 import { Laser, SheetMetal, sheetMetal } from './fabrication';
+import { Surface, SurfaceBody, SurfaceSheet, Blend, Analysis, Thickness, Sculpt, Product, CarrierNS, SurfaceMembers } from './surfacing';
 import { mat4, v3 } from './math';
 import { ctx } from './context';
 
@@ -63,6 +64,7 @@ export function buildGlobals(): Record<string, any> {
     gearPair: lib.gearPair, bevelGearPair: lib.bevelGearPair, faceGearPair: lib.faceGearPair, gearRatio: lib.gearRatio, rackRatio: lib.rackRatio,
     planetaryRatio: lib.planetaryRatio, sectorGear: lib.sectorGear, gearBodies: lib.gearBodies, driveWheel: lib.driveWheel, readDriveWheelMeta: lib.readDriveWheelMeta,
     hexagon: lib.hexagon, metric, lib: libNamespace,
+    Surface, SurfaceBody, SurfaceSheet, Blend, Analysis, Thickness, Sculpt, Product, Carrier: CarrierNS, SurfaceMembers,
     Import, Points, ANCHOR3D_NAMES, SHEET_METAL_EDGES, route, Optics, SimReady,
     // math helpers
     Transform, Vec3: v3, deg: (r: number) => (r * 180) / Math.PI, rad: (d: number) => (d * Math.PI) / 180,
