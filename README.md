@@ -83,3 +83,7 @@ mcp          MCP server and on-disk project store
 cli          command line
 tests        vitest suites
 ```
+
+## Workflow
+
+All work is committed, pushed and merged into `main`.
