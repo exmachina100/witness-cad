@@ -20,6 +20,9 @@ import { simulateDynamics, holdTest } from '../src/kernel/physics';
 import { runFea } from '../src/kernel/feaRun';
 import { summarizeFea } from '../src/kernel/feaStudy';
 import { renderPng, RenderView } from '../src/render/raster';
+import { renderTurntableGif } from '../src/render/video';
+import { Analysis } from '../src/kernel/surfacing';
+import { zlibSync, strToU8 } from 'fflate';
 import { readDoc, searchDocs, DOCS_INDEX } from '../src/docs';
 import { summarizeBuild } from '../src/app/agent-summary';
 import { EXAMPLES } from '../src/app/examples';
@@ -88,9 +91,15 @@ export function createWitnessServer() {
     });
   tool('list_versions', 'List saved versions of a project.', { project },
     ({ project }) => { const m = readMeta(project); return json(m.versions.map((v) => ({ id: v.id, name: v.name, note: v.note, current: v.id === m.currentVersion, created: new Date(v.createdAt).toISOString(), files: Object.keys(v.files).length }))); });
-  tool('create_draft', 'Create a draft branch from a version (default: current). Edit the draft with the draft id, then merge_draft.',
-    { project, name: z.string(), base_version: z.string().optional(), brief: z.string().optional().describe('What the draft should achieve') },
-    ({ project, name, base_version, brief }) => { const d = store.createDraft(project, name, base_version, brief); return json({ draft: d.id, baseVersion: d.baseVersion }); });
+  tool('create_draft', 'Create a draft branch from a version (default: current) or copy another draft (from_draft). Edit the draft with the draft id, then merge_draft.',
+    { project, name: z.string(), base_version: z.string().optional(), from_draft: z.string().optional().describe('Start from this draft\'s files instead of a version'), brief: z.string().optional().describe('What the draft should achieve') },
+    ({ project, name, base_version, from_draft, brief }) => {
+      const src = from_draft ? readMeta(project).drafts.find((x) => x.id === from_draft) : null;
+      if (from_draft && !src) throw new Error(`no draft "${from_draft}"`);
+      const d = store.createDraft(project, name, src?.baseVersion ?? base_version, brief);
+      if (src) for (const [path, content] of Object.entries(src.files)) store.write(project, path, content, d.id);
+      return json({ draft: d.id, baseVersion: d.baseVersion, from: from_draft });
+    });
   tool('list_drafts', 'List open drafts of a project.', { project },
     ({ project }) => json(readMeta(project).drafts.map((d) => ({ id: d.id, name: d.name, brief: d.brief, baseVersion: d.baseVersion, files: Object.keys(d.files) }))));
   tool('merge_draft', 'Merge a draft into the project as a new saved version.', { project, draft: z.string(), name: z.string().optional() },
@@ -331,6 +340,103 @@ export function createWitnessServer() {
       const id = newJob('drawing');
       jobs.set(id, { id, status: 'done', kind: 'drawing', path, bytes: String(e.data).length, createdAt: Date.now() });
       return json(jobs.get(id));
+    });
+
+  tool('check_surfaces', 'Check surface sheets, bodies and product skins the model returns: area, degenerate or folded cells, open edges, and whether bodies close into solids.',
+    { project, draft, params },
+    async ({ project, draft, params }) => {
+      const r = await build({ project, draft }, params);
+      if (!r.ok) throw new Error(summarizeBuild(r));
+      const found: any[] = [];
+      const walk = (v: any, name: string) => {
+        if (v == null || typeof v !== 'object') return;
+        if (v.kind === 'surfaceSheet') { found.push({ name, kind: 'sheet', ...Analysis.SurfaceHealth(v) }); return; }
+        if (v.kind === 'productSkin') { found.push({ name, kind: 'productSkin', stations: v.stations.length, ...Analysis.SurfaceHealth(v.surface()) }); return; }
+        if (v.kind === 'surfaceBody') { const open = v.openEdges(1e-2); found.push({ name, kind: 'body', sheets: v.sheets.length, openEdges: open.length, closed: open.length === 0, sheetHealth: v.sheets.map((sh: any) => Analysis.SurfaceHealth(sh).ok) }); return; }
+        if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${name}[${i}]`));
+        else if (v.constructor === Object) for (const [k, x] of Object.entries(v)) walk(x, name ? `${name}.${k}` : k);
+      };
+      walk(live.returned, '');
+      if (!found.length) return text('The model returns no surface sheets, bodies or product skins. Return them (for example `return { skin, sheet }`) to check them.');
+      const bad = found.filter((f) => f.ok === false || f.closed === false);
+      return json({ ok: bad.length === 0, surfaces: found });
+    });
+  tool('compare_to_reference', 'Compare the model with a reference: a saved version id, or a mesh/STEP file in the project (STL, OBJ, 3MF, PLY, STEP). Reports volumes, bounding boxes, overlap (IoU) and the volume only in one or the other.',
+    { project, draft, reference: z.string().describe('Version id or project file name'), params },
+    async ({ project, draft, reference, params }) => {
+      const r = await build({ project, draft }, params);
+      if (!r.ok) throw new Error(summarizeBuild(r));
+      const mine = worldMeshes(r.objects).map((m) => ({ ...m, positions: m.positions.slice(), indices: m.indices.slice() }));
+      const meta = readMeta(project);
+      let refFiles: Record<string, string>, refEntry: string | undefined;
+      if (meta.versions.some((v) => v.id === reference)) { refFiles = store.versionFiles(project, reference); refEntry = meta.entry; }
+      else {
+        const files = filesOf({ project, draft });
+        if (files[reference] == null) throw new Error(`"${reference}" is neither a version id nor a project file`);
+        refFiles = { ...files, '__reference.forge.js': `return ${/\.(step|stp)$/i.test(reference) ? 'Import.step' : 'Import.mesh'}(${JSON.stringify(reference)});` };
+        refEntry = '__reference.forge.js';
+        if (/\.(step|stp)$/i.test(reference)) await ensureStepReaderNode();
+      }
+      const rr = runProject({ files: refFiles, entry: refEntry }, {});
+      if (!rr.ok) throw new Error(`reference did not build: ${rr.error?.message}`);
+      const k = K();
+      const solid = (ms: ExportMesh[]) => k.Manifold.union(ms.map((m) => { const mesh = new k.Mesh({ numProp: 3, vertProperties: m.positions, triVerts: m.indices }); mesh.merge(); return new k.Manifold(mesh); }));
+      const A = solid(mine), B = solid(worldMeshes(rr.objects));
+      const inter = A.intersect(B).volume(), va = A.volume(), vb = B.volume();
+      const bb = (m: any) => { const b = m.boundingBox(); return { min: Array.from(b.min as number[]).map((v) => +v.toFixed(3)), max: Array.from(b.max as number[]).map((v) => +v.toFixed(3)) }; };
+      return json({ model: { volume: +va.toFixed(3), bounds: bb(A) }, reference: { volume: +vb.toFixed(3), bounds: bb(B) }, overlapVolume: +inter.toFixed(3), onlyInModel: +(va - inter).toFixed(3), onlyInReference: +(vb - inter).toFixed(3), iou: +(inter / Math.max(1e-9, va + vb - inter)).toFixed(4) });
+    });
+  tool('paint_model', 'Set display/export colours of objects by name (writes paint.json, which overrides colours from the code). Use "*" for every object; pass null to clear a name.',
+    { project, draft, colors: z.record(z.string(), z.string().nullable()) },
+    ({ project, draft, colors }) => {
+      const prev = store.files(project, draft)['paint.json'];
+      let map: Record<string, string> = {};
+      try { map = prev ? JSON.parse(prev) : {}; } catch { map = {}; }
+      for (const [n, c] of Object.entries(colors as Record<string, string | null>)) { if (c == null) delete map[n]; else { if (!/^#?[0-9a-f]{3,8}$/i.test(c)) throw new Error(`"${c}" is not a hex colour`); map[n] = c.startsWith('#') ? c : '#' + c; } }
+      store.write(project, 'paint.json', JSON.stringify(map, null, 2) + '\n', draft);
+      return json({ paint: map });
+    });
+  tool('render_picture', 'Render a picture of the model (PNG), save it in the project\'s exports folder and return it. Views: iso, front, back, left, right, top, bottom; or give azimuth/elevation in degrees.',
+    { project, draft, version: z.string().optional(), view: z.enum(['iso', 'front', 'back', 'left', 'right', 'top', 'bottom']).optional(), azimuth: z.number().optional(), elevation: z.number().optional(), width: z.number().optional(), height: z.number().optional(), background: z.string().optional().describe('Hex colour'), params, joint_values: z.record(z.string(), z.record(z.string(), z.any())).optional() },
+    async ({ project, draft, version, view, azimuth, elevation, width, height, background, params, joint_values }) => {
+      const r = await build({ project, draft, version }, params);
+      if (!r.ok) throw new Error(summarizeBuild(r));
+      const dir = azimuth != null || elevation != null ? (() => { const a = ((azimuth ?? -50) * Math.PI) / 180, e = ((elevation ?? 30) * Math.PI) / 180; return [Math.cos(a) * Math.cos(e), Math.sin(a) * Math.cos(e), Math.sin(e)] as [number, number, number]; })() : undefined;
+      const bg = background ? (background.replace('#', '').match(/../g) ?? []).map((h: string) => parseInt(h, 16)) as [number, number, number] : undefined;
+      const png = renderPng(r, { view: view as RenderView, direction: dir, background: bg, transforms: transformsFor(r, joint_values), width: Math.min(width ?? 1200, 2400), height: Math.min(height ?? 800, 1600) });
+      const path = join(store.exportsDir(project), `${readMeta(project).name.replace(/[^\w.-]+/g, '_')}-${view ?? 'view'}-${Date.now()}.png`);
+      writeFileSync(path, png);
+      return { content: [{ type: 'image' as const, data: Buffer.from(png).toString('base64'), mimeType: 'image/png' }, { type: 'text' as const, text: `saved ${path}` }] };
+    });
+  tool('render_video', 'Render a turntable video of the model as an animated GIF, save it in the exports folder and return its path.',
+    { project, draft, frames: z.number().optional(), fps: z.number().optional(), elevation: z.number().optional(), width: z.number().optional(), height: z.number().optional(), params },
+    async ({ project, draft, frames, fps, elevation, width, height, params }) => {
+      const r = await build({ project, draft }, params);
+      if (!r.ok) throw new Error(summarizeBuild(r));
+      const gif = renderTurntableGif(r, { frames, fps, elevation, width: Math.min(width ?? 480, 960), height: Math.min(height ?? 360, 720) });
+      const path = join(store.exportsDir(project), `${readMeta(project).name.replace(/[^\w.-]+/g, '_')}-turntable.gif`);
+      writeFileSync(path, gif);
+      const id = newJob('video');
+      jobs.set(id, { id, status: 'done', kind: 'video', path, bytes: gif.length, createdAt: Date.now() });
+      return json(jobs.get(id));
+    });
+  tool('read_version_picture', 'Picture (PNG) of a saved version, to see what it looked like.',
+    { project, version: z.string(), view: z.enum(['iso', 'front', 'back', 'left', 'right', 'top', 'bottom']).optional() },
+    async ({ project, version, view }) => {
+      const r = await build({ project, version });
+      if (!r.ok) throw new Error(`version ${version} does not build: ${r.error?.message}`);
+      const png = renderPng(r, { view: view as RenderView, width: 800, height: 560 });
+      const v = readMeta(project).versions.find((x) => x.id === version)!;
+      return { content: [{ type: 'image' as const, data: Buffer.from(png).toString('base64'), mimeType: 'image/png' }, { type: 'text' as const, text: `${v.name} (${new Date(v.createdAt).toISOString()})` }] };
+    });
+  tool('get_link', 'Get a share link that opens the project (all files) in the Witness CAD web app. Set WITNESS_APP_URL or pass app_url for a hosted app.',
+    { project, draft, app_url: z.string().optional() },
+    ({ project, draft, app_url }) => {
+      const m = readMeta(project);
+      const z = zlibSync(strToU8(JSON.stringify({ name: m.name, description: m.description, files: filesOf({ project, draft }), entry: m.entry })), { level: 9 });
+      const code = Buffer.from(z).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const base = (app_url ?? process.env.WITNESS_APP_URL ?? 'http://localhost:5173/').replace(/#.*$/, '');
+      return json({ url: `${base}#/share/${code}`, bytes: code.length });
     });
   tool('get_job', 'Get the status and output path of an export job.', { job: z.string() },
     ({ job }) => { const j = jobs.get(job); if (!j) throw new Error(`no job "${job}"`); return json(j); });

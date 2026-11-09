@@ -11,7 +11,14 @@ const norm = (v: number[]) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; ret
 const cross = (a: number[], b: number[]) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
-export function renderPng(result: RunResult, o: { width?: number; height?: number; view?: RenderView; transforms?: Record<string, number[]>; background?: [number, number, number] } = {}): Uint8Array {
+export type RenderOpts = { width?: number; height?: number; view?: RenderView; direction?: [number, number, number]; transforms?: Record<string, number[]>; background?: [number, number, number] };
+export function renderPng(result: RunResult, o: RenderOpts = {}): Uint8Array {
+  const r = renderRgb(result, o);
+  return encodePng(r.rgb, r.width, r.height);
+}
+/** Render to raw RGB pixels (for PNG, GIF frames, ...). */
+export function renderRgb(result: RunResult, o: RenderOpts = {}): { rgb: Uint8Array; width: number; height: number } {
+  const encodePng = (rgb: Uint8Array, width: number, height: number) => ({ rgb, width, height });
   const W = o.width ?? 800, H = o.height ?? 560;
   const bg = o.background ?? [24, 29, 36];
   const meshes = worldMeshes(result.objects, { transforms: o.transforms });
@@ -20,7 +27,7 @@ export function renderPng(result: RunResult, o: { width?: number; height?: numbe
   const depth = new Float32Array(W * H).fill(Infinity);
 
   // camera basis: looking along -d, Z up (Y up for top/bottom views)
-  const d = norm(DIRS[o.view ?? 'iso']);
+  const d = norm(o.direction ?? DIRS[o.view ?? 'iso']);
   const upHint = Math.abs(d[2]) > 0.95 ? [0, 1, 0] : [0, 0, 1];
   const right = norm(cross(upHint, d)), up = cross(d, right);
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;

@@ -183,6 +183,14 @@ export function runProject(project: Project, paramValues: Record<string, any> = 
     } catch (e: any) {
       error = toError(e, entry);
     }
+    // paint.json: { "object name": "#rrggbb" } colour overrides (written by the paint_model tool or by hand)
+    const paint = project.files['paint.json'];
+    if (paint) {
+      try {
+        const map = JSON.parse(paint) as Record<string, string>;
+        for (const o of objects) { const col = map[o.name] ?? map[o.name.split('/').pop()!] ?? map['*']; if (col) o.color = col; }
+      } catch { c.warnings.push('paint.json is not valid JSON; colours were not applied'); }
+    }
   }
   const result: RunResult = {
     ok: !error,

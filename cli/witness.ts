@@ -6,6 +6,8 @@ import { projectNeedsStep } from '../src/kernel/importers';
 import { runProject, projectResolver, RunResult } from '../src/kernel/runtime';
 import { exportModel, EXPORT_FORMATS } from '../src/export';
 import { renderPng, RenderView } from '../src/render/raster';
+import { renderTurntableGif } from '../src/render/video';
+import { readFileSync } from 'node:fs';
 import { summarizeBuild } from '../src/app/agent-summary';
 import { runFea } from '../src/kernel/feaRun';
 import { summarizeFea } from '../src/kernel/feaStudy';
@@ -16,18 +18,21 @@ import { simulateDynamics, holdTest } from '../src/kernel/physics';
 const USAGE = `witness <command> <project> [options]
 
 Commands
-  build   <project>                       build and print a summary
-  check   <project>                       build and exit 1 if the build or any verify check fails
+  build   <project>                       build and print a summary (alias: run)
+  check   <project> [--combinations "Width=60,120;Height=6,12"] [--variants variants.json]
+                                          build (every combination / variant) and exit 1 if a build or verify check fails
   params  <project>                       list parameters and their values
   export  <project> --format <fmt> [--out file]   formats: ${Object.keys(EXPORT_FORMATS).join(', ')}
   strength <project> [--study name] [--fix bottom --load top --newtons 100 --material aluminum6061T6] [--elements 12000]
                                           finite element stress check; exits 1 below the study's target safety factor
   render  <project> [--view iso|front|top|…] [--out file.png] [--size 1200x800]
+  video   <project> [--frames 36] [--out turntable.gif] [--size 480x360]    turntable GIF
   sim     <project> [--seconds 2] [--assembly name] [--target joint=value]   rigid-body dynamics summary
   sim     <project> --hold joint=load [--seconds 2] [--max-travel 3]          hold test, exits 1 if the joint gives
 
 <project> is a folder with main.forge.js, a single .forge.js file, or the id of a project in ~/.witness-cad.
-Options: --set Name=value (repeatable) overrides parameters; --entry file.forge.js picks the root file.`;
+Options: --set / --param Name=value (repeatable) overrides parameters; --entry file.forge.js picks the root file.
+export also takes --view top|front|right|section and --at z for dxf / svg outlines.`;
 
 function args() {
   const [cmd, target, ...rest] = process.argv.slice(2);
@@ -37,7 +42,7 @@ function args() {
     if (!a.startsWith('--')) continue;
     const k = a.slice(2), v = rest[i + 1];
     if (k === 'target') { const [n, val] = v.split('='); (o as any).__targets = { ...((o as any).__targets ?? {}), [n]: Number(val) }; }
-    else if (k === 'set') { const [n, ...val] = v.split('='); const s = val.join('='); set[n] = s === 'true' ? true : s === 'false' ? false : isNaN(Number(s)) ? s : Number(s); }
+    else if (k === 'set' || k === 'param') { const [n, ...val] = v.split('='); const s = val.join('='); set[n] = s === 'true' ? true : s === 'false' ? false : isNaN(Number(s)) ? s : Number(s); }
     else o[k] = v;
     i++;
   }
@@ -68,8 +73,33 @@ async function main() {
   if (projectNeedsStep(proj.files)) await ensureStepReaderNode();
   const r: RunResult = runProject({ files: proj.files, entry: proj.entry }, set);
   switch (cmd) {
+    case 'run':
     case 'build': console.log(summarizeBuild(r)); process.exit(r.ok ? 0 : 1);
     case 'check': {
+      const sets: Record<string, any>[] = [];
+      if (o.combinations) {
+        // cartesian product of "A=1,2;B=x,y"
+        let combos: Record<string, any>[] = [{}];
+        for (const part of o.combinations.split(';').filter(Boolean)) {
+          const [n, vals] = part.split('=');
+          combos = combos.flatMap((c) => vals.split(',').map((v) => ({ ...c, [n.trim()]: isNaN(Number(v)) ? (v === 'true' ? true : v === 'false' ? false : v) : Number(v) })));
+        }
+        sets.push(...combos);
+      }
+      if (o.variants) { const v = JSON.parse(readFileSync(o.variants, 'utf8')); sets.push(...(Array.isArray(v) ? v : Object.values(v)) as any[]); }
+      if (sets.length) {
+        let failed = 0;
+        for (const vals of sets) {
+          const rr = runProject({ files: proj.files, entry: proj.entry }, { ...set, ...vals });
+          const bad = !rr.ok || rr.checks.some((c) => !c.pass);
+          if (bad) failed++;
+          console.log(`${bad ? 'FAIL' : 'ok  '}  ${JSON.stringify(vals)}${!rr.ok ? `  build error: ${rr.error?.message}` : bad ? `  failed: ${rr.checks.filter((c) => !c.pass).map((c) => c.label).join(', ')}` : ''}`);
+        }
+        console.log(failed ? `
+FAILED: ${failed} of ${sets.length} combination(s)` : `
+OK: ${sets.length} combination(s) passed`);
+        process.exit(failed ? 1 : 0);
+      }
       console.log(summarizeBuild(r));
       const bad = !r.ok || r.checks.some((c) => !c.pass);
       console.log(bad ? '\nFAILED' : `\nOK: ${r.checks.length} check(s) passed`);
@@ -82,7 +112,7 @@ async function main() {
       if (!r.ok) { console.error(summarizeBuild(r)); process.exit(1); }
       const fmt = o.format ?? '3mf';
       if (!(fmt in EXPORT_FORMATS)) throw new Error(`unknown format "${fmt}"`);
-      const e = exportModel(r, fmt as any, { name: proj.name });
+      const e = exportModel(r, fmt as any, { name: proj.name, view: o.view as any, at: o.at != null ? Number(o.at) : undefined });
       const out = o.out ?? e.filename;
       writeFileSync(out, typeof e.data === 'string' ? e.data : Buffer.from(e.data));
       console.log(`wrote ${out}`);
@@ -93,6 +123,14 @@ async function main() {
       const [w, h] = (o.size ?? '1200x800').split('x').map(Number);
       const out = o.out ?? `${proj.name}-${o.view ?? 'iso'}.png`;
       writeFileSync(out, renderPng(r, { view: (o.view ?? 'iso') as RenderView, width: w, height: h }));
+      console.log(`wrote ${out}`);
+      process.exit(0);
+    }
+    case 'video': {
+      if (!r.ok) { console.error(summarizeBuild(r)); process.exit(1); }
+      const [w, h] = (o.size ?? '480x360').split('x').map(Number);
+      const out = o.out ?? `${proj.name}-turntable.gif`;
+      writeFileSync(out, renderTurntableGif(r, { width: w, height: h, frames: o.frames ? Number(o.frames) : undefined }));
       console.log(`wrote ${out}`);
       process.exit(0);
     }
