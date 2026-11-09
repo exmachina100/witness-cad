@@ -90,7 +90,7 @@ export function hull(...items: any[]): Shape {
   return new Shape(K().Manifold.hull(pts));
 }
 
-export function hullPoints(points: Vec3[]): Shape { return hull(...points); }
+export function hullPoints(points: Vec3[]): Shape { return new Shape(K().Manifold.hull(points.map((p) => toVec3(p)) as any)); }
 
 // ---------------------------------------------------------------- booleans
 export function union(...inputs: any[]): Shape {

@@ -147,6 +147,23 @@ return asm;
     },
   },
   {
+    id: 'dominoes', name: 'Domino run', tags: ['assembly', 'sim', 'dynamics'],
+    description: 'A row of tiles on a table. Rigid-body dynamics with contacts knocks them over in turn; a check confirms the last one falls.',
+    files: {
+      'main.forge.js': `const n = Param.number("Dominoes", 8, { min: 2, max: 20, step: 1 });
+const gap = Param.number("Spacing", 22, { min: 12, max: 40, unit: "mm" });
+const tile = box(8, 24, 48);
+// the first tile leans 12° on its front edge so the row starts falling
+const lean = tile.translate(-4, 0, 0).rotate([0, 12, 0]).translate(4, 0, 0);
+let row = assembly("Dominoes").addPart("Table", box(400, 120, 10).translate(150, 0, -10).color("#7a6a58"), { sim: Sim.body({ motion: Sim.motion.static() }) });
+for (let i = 0; i < n; i++) row = row.addPart(\`D\${i + 1}\`, (i ? tile : lean).translate(i * gap, 0, 0).color(i % 2 ? "#e9e4da" : "#2b2f36"));
+const res = row.simulate({ duration: 2.5 });
+verify.greaterThan("last domino falls", res.summary.parts[\`D\${n}\`].rotationDeg, 45);
+return row;
+`,
+    },
+  },
+  {
     id: 'nameplate', name: 'Nameplate', tags: ['text', 'sketch'],
     description: 'Raised text on a rounded plate, ready for two-colour printing.',
     files: {
@@ -185,6 +202,36 @@ dim([-length / 2, -depthMm / 2, 218], [length / 2, -depthMm / 2, 218], { label: 
 bom(1, "Plywood shelf", { material: "Birch plywood", dimensions: [length, depthMm, 18], process: "cut" });
 bom(2, "Steel bracket 30x180", { material: "Steel" });
 return group({ name: "Shelf", shape: board }, { name: "Bracket L", shape: left }, { name: "Bracket R", shape: right });
+`,
+    },
+  },
+  {
+    id: 'shelf-bracket-fea', name: 'Shelf bracket strength', tags: ['fea', 'strength', 'params'],
+    description: 'An L bracket with a gusset and a declared finite element study: wall face fixed, shelf loaded. Run it from Inspect, Strength.',
+    files: {
+      'main.forge.js': `// Shelf bracket with a static stress study
+const load = Param.number("Shelf load", 300, { min: 20, max: 2000, unit: "N" });
+const t = Param.number("Thickness", 5, { min: 2, max: 12, unit: "mm" });
+const gusset = Param.bool("Gusset", true);
+const width = 30, arm = 80, height = 70;
+
+let part = box(arm, width, t).translate(arm / 2, 0, 0)
+  .add(box(t, width, height).translate(t / 2, 0, 0));
+if (gusset) {
+  const tri = polygon([[0, 0], [arm * 0.6, 0], [0, height * 0.6]]).extrude(t).rotate([90, 0, 0]).translate(0, t / 2, 0);
+  part = part.add(tri.translate(t, 0, t));
+}
+part = part.color("#7d93b2");
+
+Fea.study.staticStress("Shelf load", {
+  part: "bracket",
+  material: Fea.materials.aluminum6061T6(),
+  fixtures: [Fea.fix.fixed(Fea.region.side("xmin"))],
+  loads: [Fea.load.force(Fea.region.box([arm * 0.6, -width, t - 0.5], [arm + 1, width, t + 0.5]), { newtons: load, direction: [0, 0, -1] })],
+  target: Fea.target.minSafetyFactor(2),
+});
+
+return { bracket: part };
 `,
     },
   },
