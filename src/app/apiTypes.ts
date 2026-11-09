@@ -154,7 +154,7 @@ declare class Assembly {
   addSpring(name: string, o: { from: string; to: string; spring: any }): Assembly;
   addCable(name: string, o: { through: string[]; diameter: number; length?: number; color?: string }): Assembly;
   addContact(a: string, b: string): Assembly; probe(name: string, part: string, point: Vec3): Assembly;
-  withSimulation(o?: any): Assembly; solve(state?: Record<string, number> | string): any; connectorDistance(a: string, b: string): number;
+  withSimulation(o?: any): Assembly; simulate(o?: { duration?: number; dt?: number; targets?: Record<string, number>; initial?: Record<string, any>; ground?: boolean | { z?: number; friction?: number; restitution?: number }; gravity?: number | [number, number, number]; loads?: any[]; bodyVelocities?: Record<string, { linear?: number[]; angular?: number[] }>; motion?: Record<string, 'dynamic' | 'static' | 'kinematic'> }): any; holdTest(o: { joint: string; load: number; seconds?: number; maxTravel?: number }): any; solve(state?: Record<string, number> | string): any; connectorDistance(a: string, b: string): number;
   sweep(joint: string, o: { from: number; to: number; steps: number }): any; describe(): any; bom(): any[];
 }
 declare function assembly(name?: string): Assembly;

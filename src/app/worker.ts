@@ -8,6 +8,7 @@ import { registerFont } from '../kernel/text';
 import { runProject, solveLive, live, projectResolver, RunResult } from '../kernel/runtime';
 import { exportModel } from '../export';
 import { simulate, estimateStaticStress } from '../kernel/sim';
+import { simulateDynamics, holdTest } from '../kernel/physics';
 import { intersectWithPlane, projectToPlane, union } from '../kernel/ops';
 import { Shape } from '../kernel/shape';
 import { ShapeGroup } from '../kernel/ops';
@@ -74,8 +75,20 @@ self.onmessage = async (ev: MessageEvent) => {
       case 'simulate': {
         const asm = live.assemblies.get(payload.assembly);
         if (!asm) throw new Error(`no assembly "${payload.assembly}"`);
-        const sim = simulate(asm, payload.opts ?? {});
-        result = { frames: sim.frames.map((f) => ({ t: f.t, values: f.values, transforms: solveLive(payload.assembly, f.values)?.transforms })), final: sim.final };
+        const opts = payload.opts ?? {};
+        if (opts.engine === 'joints') {
+          const sim = simulate(asm, opts);
+          result = { engine: 'joints', frames: sim.frames.map((f) => ({ t: f.t, values: f.values, transforms: solveLive(payload.assembly, f.values)?.transforms })), final: sim.final };
+        } else {
+          const sim = simulateDynamics(asm, opts);
+          result = { engine: sim.engine, frames: sim.frames, final: sim.final, summary: sim.summary, warnings: sim.warnings };
+        }
+        break;
+      }
+      case 'holdTest': {
+        const asm = live.assemblies.get(payload.assembly);
+        if (!asm) throw new Error(`no assembly "${payload.assembly}"`);
+        result = holdTest(asm, payload.opts);
         break;
       }
       case 'collisions': {

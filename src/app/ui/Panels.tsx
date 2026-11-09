@@ -403,6 +403,10 @@ export function InspectPanel(ctx: WorkspaceCtx) {
   const [report, setReport] = useState<any>(null);
   const [loads, setLoads] = useState<Record<string, number> | null>(null);
   const [fea, setFea] = useState<any>(null);
+  const [simEngine, setSimEngine] = useState<'dynamics' | 'joints'>('dynamics');
+  const [simSeconds, setSimSeconds] = useState(3);
+  const [simInfo, setSimInfo] = useState<any>(null);
+  const [hold, setHold] = useState<{ joint: string; load: number; result?: any }>({ joint: '', load: 1 });
   const asm = result?.assemblies[0];
 
   const checkInterference = async () => {
@@ -415,7 +419,8 @@ export function InspectPanel(ctx: WorkspaceCtx) {
     if (!asm) return;
     toast('Simulating…');
     try {
-      const r: any = await getEngine().simulate(asm.name, { duration: asm.simulation?.duration ?? 3, initial: jointValues[asm.name] });
+      const r: any = await getEngine().simulate(asm.name, { engine: simEngine, duration: simSeconds, initial: jointValues[asm.name] });
+      setSimInfo(r.summary ? { ...r.summary, warnings: r.warnings } : null);
       setMotion({ playing: { asm: asm.name, kind: 'simulation', name: 'sim' }, t: 0, frames: r.frames });
     } catch (e: any) { toast(`Simulation failed: ${e.message}`); }
   };
@@ -498,6 +503,32 @@ export function InspectPanel(ctx: WorkspaceCtx) {
               </button>
               <button onClick={ctx.video}><Icon name="video" size={12} /> Video</button>
             </div>
+            <div className="row" style={{ flexWrap: 'wrap' }}>
+              <div className="seg">
+                <button className={simEngine === 'dynamics' ? 'on' : ''} onClick={() => setSimEngine('dynamics')} title="Rigid bodies with gravity, contacts, friction and joint constraints">Dynamics</button>
+                <button className={simEngine === 'joints' ? 'on' : ''} onClick={() => setSimEngine('joints')} title="Fast joint-space preview without contacts">Joint-space</button>
+              </div>
+              <label className="row" style={{ gap: 4 }}>Seconds <input type="number" min={0.2} max={30} step={0.5} value={simSeconds} style={{ width: 56 }} onChange={(e) => setSimSeconds(Math.max(0.2, Math.min(30, Number(e.target.value) || 3)))} aria-label="Simulation seconds" /></label>
+            </div>
+            {simInfo && a.name === asm?.name && <div className="check col" style={{ gap: 2 }}>
+              <span className={'chip ' + (simInfo.settled ? 'ok' : 'warn')}>{simInfo.settled ? 'Settled' : 'Still moving'} after {simInfo.duration.toFixed(1)} s · {simInfo.bodies} bodies</span>
+              <span className="muted">Max contact penetration {simInfo.maxPenetrationMm.toFixed(2)} mm · peak contacts {simInfo.peakContacts}</span>
+              {Object.entries(simInfo.parts).filter(([, p]: any) => p.displacementMm > 0.5).map(([n, p]: any) => <span key={n} className="mono">{n}: moved {p.displacementMm.toFixed(1)} mm, turned {p.rotationDeg.toFixed(1)}°</span>)}
+              {Object.entries(simInfo.drives).map(([n, d]: any) => <span key={n} className={'mono' + (d.saturatedS > 0.1 ? ' bad' : '')}>{n}: peak {d.peakEffort.toFixed(3)}{d.limit != null ? ` / ${d.limit}` : ''}{d.saturatedS > 0 ? ` (saturated ${d.saturatedS.toFixed(2)} s)` : ''}</span>)}
+              {(simInfo.warnings ?? []).map((w: string, i: number) => <span key={i} className="chip warn">{w}</span>)}
+            </div>}
+            {a.joints.some((j) => j.type === 'revolute' || j.type === 'prismatic') && a.name === asm?.name && <>
+              <h3>Hold test</h3>
+              <div className="row" style={{ flexWrap: 'wrap' }}>
+                <select value={hold.joint} onChange={(e) => setHold({ ...hold, joint: e.target.value, result: undefined })} aria-label="Hold joint">
+                  <option value="">Joint…</option>
+                  {a.joints.filter((j) => j.type === 'revolute' || j.type === 'prismatic').map((j) => <option key={j.name} value={j.name}>{j.name}</option>)}
+                </select>
+                <input type="number" step={0.1} value={hold.load} style={{ width: 64 }} onChange={(e) => setHold({ ...hold, load: Number(e.target.value), result: undefined })} aria-label="Hold load" title="N·m for rotary joints, N for sliders" />
+                <button disabled={!hold.joint} onClick={async () => { try { setHold({ ...hold, result: await getEngine().call('holdTest', { assembly: a.name, opts: { joint: hold.joint, load: hold.load, seconds: 2, initial: jointValues[a.name] } }) }); } catch (e: any) { toast(e.message); } }}>Run</button>
+              </div>
+              {hold.result && <div className={'chip ' + (hold.result.pass ? 'ok' : 'bad')}>{hold.result.pass ? 'Holds' : 'Gives'}: {hold.result.travel.toFixed(2)} {hold.result.travelUnit} under {hold.result.load} {hold.result.unit} (max {hold.result.maxTravel})</div>}
+            </>}
             {a.warnings.length > 0 && a.warnings.map((w, i) => <div key={i} className="chip warn">{w}</div>)}
           </div>
         ))}

@@ -129,7 +129,32 @@ A connector is an origin, an axis and an up vector. Joining two connectors place
 - \`addContact(a, b)\`, \`probe(name, part, point)\`, \`withSimulation({ rootPart, profile, controllers, floating })\`
 - \`solve(state | poseName)\` → SolvedAssembly: \`getTransform\`, \`getPart\`, \`jointLoad(name)\` (static gravity torque in N·m or force in N), \`jointLoads()\`, \`collisionReport()\`, \`minClearance(a, b)\`, \`spring(name)\`, \`cable(name)\`, \`probe(name)\`, \`bom()\`, \`toGroup()\`, \`warnings()\`.
 
-Each joint becomes a slider under Inspect → Motion. Poses and animations play there too, and **Simulate** runs a joint-space preview under gravity with the joint drives.
+Each joint becomes a slider under Inspect → Motion. Poses and animations play there too, and **Simulate** runs the assembly as rigid bodies (Dynamics, the default) or as a quick joint-space preview without contacts (Joint-space). After a dynamics run the panel shows whether the model settled, how far each part moved, contact penetration and peak drive effort. **Hold test** loads one joint and reports whether it gives.
+
+## Dynamics
+\`asm.simulate(options)\` (also \`Sim.run(asm, options)\`) runs rigid-body dynamics:
+
+- Every part is a rigid body with mass and inertia from its mesh (\`metadata.massKg\`, \`densityKgM3\` or \`Sim.body({ massKg, material })\`). Parts joined by \`fixed\` joints move as one body.
+- Joints are constraints between bodies, so a robot with a free base, a closed linkage or a part resting on another all work in one run. Revolute and prismatic joints honour \`min\`/\`max\`, \`Sim.drive.servo\` (tracks \`targets[joint]\`, \`drive.target\` or the start value within \`maxTorqueNm\` and \`maxSpeedRpm\`), \`velocity\`, \`torsionSpring\`, \`linearSpring\`, damping, friction and \`follows\` couplings. Assembly springs pull between their connectors.
+- Colliders are convex hulls of each part by default; \`Sim.collider.boundingBox()\`, \`capsule(from, to, r)\`, \`hull(points)\`, \`pieces()\` / \`convexDecomposition()\` (one hull per solid piece) and \`none()\` change that. Jointed parent/child pairs never collide; add more with \`ignorePairs\`.
+- Contacts carry friction (the larger \`staticFriction\` of the two \`Sim.material\`s) and restitution (their average). A ground plane sits under the lowest part unless \`ground: false\` or \`ground: { z, friction, restitution }\`.
+- Root parts fall freely unless \`Sim.motion.static()\` (welded to the world) or \`kinematic()\` (moves only with \`bodyVelocities\`).
+
+Options: \`duration\` (s, default 2), \`dt\` (s, default 0.002), \`gravity\` (m/s² magnitude or vector), \`targets\`, \`velocities\` (rpm for velocity drives), \`initial\` (joint values), \`bodyVelocities: { Part: { linear: [mm/s], angular: [deg/s] } }\`, \`loads: [{ part, force: [N], at: [mm] } | { joint, value }]\`, \`motion: { Part: "static" }\`, \`contacts: false\`.
+
+The result has \`frames\` (60 per second: \`t\`, joint \`values\`, part \`transforms\`), \`final\` joint values, and \`summary\`: \`settled\`, \`maxPenetrationMm\`, \`kineticEnergyJ\`, \`parts[name]\` (\`displacementMm\`, \`rotationDeg\`, \`finalCenterMm\`, \`resting\`), \`drives[joint]\` (\`peakEffort\`, \`limit\`, \`saturatedS\`) and \`jointTravel\`.
+
+\`\`\`js
+const res = arm.simulate({ duration: 2, targets: { shoulder: 80 } });
+verify.lessThan("reaches the target", Math.abs(res.final.shoulder - 80), 2);
+verify.lessThan("servo stays within torque", res.summary.drives.shoulder.peakEffort, 2.5);
+const drop = Sim.drop(bracket, { height: 300 });       // drop one part onto the floor
+verify.that("lands upright", drop.summary.parts.Part.rotationDeg < 5);
+const h = lidBox.holdTest({ joint: "open", load: 0.3, seconds: 2, maxTravel: 3 }); // control run subtracted
+verify.that("lid holds 0.3 N·m", h.pass);
+\`\`\`
+
+It is a sequential-impulse solver with convex colliders, meant for design checks (does it fall over, does the servo hold, does the latch give). For contact-rich or high-fidelity work, export MJCF and run MuJoCo.
 
 ## Sim.*
 \`Sim.material\`, \`Sim.body\`, \`Sim.collider.capsule/hull/convexHull/convexDecomposition/boundingBox/visualMesh/sdfMesh/none\`, \`Sim.motion.dynamic/kinematic/static\`, \`Sim.drive.passive/velocity/servo/torsionSpring/linearSpring\`, \`Sim.contact.wheelSurface/gripperSurface\`, \`Sim.profile.robotBodyRunnable/robotBodyIsaac\`, \`Sim.controller.diffDrive\`.
@@ -183,7 +208,7 @@ claude mcp add witness-cad -- npx tsx mcp/server.ts
 
 Projects live in \`~/.witness-cad/projects\` (override with WITNESS_HOME).
 
-Tools: read_docs, search_docs, list_projects, create_project, list_versions, create_draft, list_drafts, merge_draft, read_file, write_file, edit_file, save_version, build_model, build_variants, check_names, check_fit, check_assembly, check_joint_torque, check_strength, check_manufacturing, check_simready, read_make_list, compare_versions, view_model, export_model, export_drawing, get_job.
+Tools: read_docs, search_docs, list_projects, create_project, list_versions, create_draft, list_drafts, merge_draft, read_file, write_file, edit_file, save_version, build_model, build_variants, check_names, check_fit, check_assembly, check_joint_torque, check_strength, check_manufacturing, check_simready, simulate_model, check_hold, read_make_list, compare_versions, view_model, export_model, export_drawing, get_job.
 
 Recommended loop: read the docs, pick or create a project, create a draft from a version, edit → build_model → checks → view_model until the acceptance criteria pass, then save_version (or merge_draft).` },
   { id: 'cli', title: 'Command line', body: `# Command line
@@ -192,6 +217,8 @@ Recommended loop: read the docs, pick or create a project, create a draft from a
 npm run cli -- build path/to/project            # build and print a summary
 npm run cli -- export path/to/project --format 3mf --out model.3mf
 npm run cli -- check path/to/project            # exit code 1 when a verify check fails
+npm run cli -- sim path/to/project --seconds 2   # rigid-body dynamics summary
+npm run cli -- sim path/to/project --hold lid=0.3 --max-travel 3   # hold test, exit 1 if it gives
 npm run cli -- params path/to/project --set Width=120
 \`\`\`
 A project path is a folder with \`main.forge.js\` (and any helper files) or a single \`.forge.js\` file.` },
