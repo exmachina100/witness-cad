@@ -91,7 +91,7 @@ export class Shape {
     return new Shape(m, {
       faces, color: this.colorValue, material: this.materialProps, connectors, name: this.name,
       recipe: xf ? (this.recipe ? { ...this.recipe, xf: mat4.mul(xf, this.recipe.xf ?? mat4.identity()) } : undefined) : undefined,
-      meta: this.meta, ...extra,
+      meta: xf && this.meta.references ? { ...this.meta, references: Object.fromEntries(Object.entries(this.meta.references).map(([k, v]) => [k, mat4.apply(xf, toVec3(v))])) } : this.meta, ...extra,
     });
   }
 
