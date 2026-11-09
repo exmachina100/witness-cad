@@ -4,18 +4,29 @@
 // a transform for every triangle run through booleans and transforms, so at export time each triangle
 // can be traced back to the exact surface it came from.
 import type { ManifoldToplevel, Manifold } from 'manifold-3d';
-import type { Vec2, Vec3 } from './math';
+import { v3, Vec2, Vec3 } from './math';
+import { extrusionSurface, interpolateCurve, NurbsSurface, revolutionSurface } from './nurbs';
 
-export type SurfaceDef =
+/**
+ * Where the triangles of a free-form surface came from, in the surface's local frame: side walls of an
+ * extrusion of a polyline along z, or a revolution of an (r, z) polyline about z. Lets the exporter
+ * assign triangles to the surface without a closest-point search.
+ */
+export type ProfileHint = { mode: 'extrude'; poly: Vec2[]; z0: number; z1: number } | { mode: 'revolve'; poly: Vec2[] };
+
+/** `tag`: triangles whose Manifold faceID equals the tag lie on this surface (meshes we build ourselves). */
+export type SurfaceDef = (
   | { type: 'plane'; origin: Vec3; normal: Vec3; tol: number }
   | { type: 'cylinder'; origin: Vec3; axis: Vec3; radius: number; tol: number }
   /** radius at origin; slope = d(radius)/d(distance along axis) */
   | { type: 'cone'; origin: Vec3; axis: Vec3; radius: number; slope: number; tol: number }
   | { type: 'sphere'; center: Vec3; radius: number; tol: number }
-  | { type: 'torus'; center: Vec3; axis: Vec3; major: number; minor: number; tol: number };
+  | { type: 'torus'; center: Vec3; axis: Vec3; major: number; minor: number; tol: number }
+  | { type: 'nurbs'; surf: NurbsSurface; tol: number; hint?: ProfileHint }
+) & { tag?: number };
 
 /** Triangle runs of a mesh, as reported by Manifold: run i covers triangles [index[i]/3, index[i+1]/3). */
-export interface MeshRuns { index: Uint32Array; ids: Uint32Array; xf: Float32Array }
+export interface MeshRuns { index: Uint32Array; ids: Uint32Array; xf: Float32Array; faceID?: Uint32Array }
 
 const MAX_ENTRIES = 200_000;
 const registry = new Map<number, SurfaceDef[]>();
@@ -33,11 +44,21 @@ export function surfaceTable(runs: MeshRuns | undefined): Record<number, Surface
   return out;
 }
 
+/** Record the exact surfaces of a manifold the kernel just built (it must be an original). */
+export function registerSurfaces(m: Manifold, defs: SurfaceDef[]) { register(m, defs); }
+
+/** Record surfaces under an ID from Manifold.reserveIDs, used as the runOriginalID of a mesh we build. */
+export function registerSurfacesById(id: number, defs: SurfaceDef[]) { if (defs.length) store(id, defs); }
+
 function register(m: Manifold, defs: SurfaceDef[]) {
   if (!defs.length) return;
   let id: number;
   try { id = m.originalID(); } catch { return; }
   if (id < 0) return;
+  store(id, defs);
+}
+
+function store(id: number, defs: SurfaceDef[]) {
   registry.set(id, defs);
   if (registry.size > MAX_ENTRIES) {
     const drop = registry.size - MAX_ENTRIES;
@@ -144,7 +165,7 @@ function coneDef(r1: number, z0: number, r2: number, z1: number, tol: number): S
 
 // ------------------------------------------------------------------ 2D profile analysis
 
-export type Piece = { kind: 'line'; a: Vec2; b: Vec2 } | { kind: 'arc'; c: Vec2; r: number; sag: number };
+export type Piece = { kind: 'line'; a: Vec2; b: Vec2 } | { kind: 'arc'; c: Vec2; r: number; sag: number; pts: Vec2[] } | { kind: 'spline'; pts: Vec2[] };
 
 const MAX_TURN = (20 * Math.PI) / 180;
 const MIN_TURN = (0.2 * Math.PI) / 180;
@@ -181,7 +202,7 @@ export function contourPieces(poly: Vec2[]): Piece[] {
     const c = circle3(poly[0], poly[Math.floor(n / 3)], poly[Math.floor((2 * n) / 3)]);
     if (c && poly.every((p) => Math.abs(Math.hypot(p[0] - c.c[0], p[1] - c.c[1]) - c.r) <= eps + 1e-6 * c.r)) {
       const maxT = Math.max(...turns.map(Math.abs));
-      return [{ kind: 'arc', c: c.c, r: c.r, sag: c.r * (1 - Math.cos(maxT / 2)) }];
+      return [{ kind: 'arc', c: c.c, r: c.r, sag: c.r * (1 - Math.cos(maxT / 2)), pts: [...poly, poly[0]] }];
     }
   }
   // Start just after the longest edge (usually the end of a straight side), so arcs are not cut at the seam.
@@ -228,14 +249,84 @@ export function contourPieces(poly: Vec2[]): Piece[] {
     }
     if (best > 0 && bestC) {
       const maxT = Math.max(...T.slice(i + 1, best).map(Math.abs));
-      out.push({ kind: 'arc', c: bestC.c, r: bestC.r, sag: bestC.r * (1 - Math.cos(maxT / 2)) });
+      out.push({ kind: 'arc', c: bestC.c, r: bestC.r, sag: bestC.r * (1 - Math.cos(maxT / 2)), pts: Q.slice(i, best + 1) });
       i = best;
     } else {
       out.push({ kind: 'line', a: Q[i], b: Q[i + 1] });
       i++;
     }
   }
+  return groupSplines(out);
+}
+
+const SPLINE_TURN = (25 * Math.PI) / 180;
+
+/**
+ * Free-form curves (font outlines, involutes, sampled splines) arrive as many short edges, some of
+ * which happen to fit small circle arcs. A chain of pieces that join smoothly (small turn, similar
+ * edge lengths) is merged into one spline piece when it is clearly not a plain arc: three or more
+ * short lines, three or more arcs, or arcs mixed with two or more lines. Long straight edges and
+ * isolated arcs (fillets, rounded corners, holes) stay exact lines and circles.
+ */
+function groupSplines(pieces: Piece[]): Piece[] {
+  const n = pieces.length;
+  if (n < 2) return pieces;
+  const ptsOf = (p: Piece): Vec2[] => (p.kind === 'line' ? [p.a, p.b] : p.pts);
+  const elen = (a: Vec2, b: Vec2) => Math.hypot(b[0] - a[0], b[1] - a[1]);
+  // smooth[i]: piece i flows smoothly into piece i+1
+  const smooth = pieces.map((p, i) => {
+    const A = ptsOf(p), B = ptsOf(pieces[(i + 1) % n]);
+    if (A.length < 2 || B.length < 2) return false;
+    const a0 = A[A.length - 2], a1 = A[A.length - 1], b1 = B[1];
+    const t = Math.abs(turnAt(a0, a1, b1));
+    const r = elen(a0, a1) / Math.max(1e-300, elen(a1, b1));
+    return t <= SPLINE_TURN && r < 2.5 && r > 0.4;
+  });
+  const worth = (chain: Piece[]) => {
+    const arcs = chain.filter((p) => p.kind === 'arc').length, lines = chain.filter((p) => p.kind === 'line').length;
+    return lines >= 3 || arcs >= 3 || (arcs >= 1 && lines >= 2) || chain.some((p) => p.kind === 'spline');
+  };
+  const merge = (chain: Piece[]): Vec2[] => {
+    const pts: Vec2[] = [...ptsOf(chain[0])];
+    for (const p of chain.slice(1)) pts.push(...ptsOf(p).slice(1));
+    return pts;
+  };
+  if (smooth.every((x) => x)) {
+    if (!worth(pieces)) return pieces;
+    // a closed smooth loop: split in two open splines so no face wraps all the way round
+    const pts = merge(pieces);
+    pts.pop();
+    const h = Math.floor(pts.length / 2);
+    return [{ kind: 'spline', pts: pts.slice(0, h + 1) }, { kind: 'spline', pts: [...pts.slice(h), pts[0]] }];
+  }
+  // rotate so we start right after a break
+  let s = 0;
+  while (smooth[(s - 1 + n) % n]) s++;
+  const out: Piece[] = [];
+  let i = 0;
+  while (i < n) {
+    let j = i;
+    while (j < n - 1 && smooth[(s + j) % n]) j++;
+    const chain: Piece[] = [];
+    for (let k = i; k <= j; k++) chain.push(pieces[(s + k) % n]);
+    if (chain.length > 1 && worth(chain)) out.push({ kind: 'spline', pts: merge(chain) });
+    else out.push(...chain);
+    i = j + 1;
+  }
   return out;
+}
+
+const to3 = (p: Vec2): Vec3 => [p[0], p[1], 0];
+
+/** Sagitta-style tolerance: how far the polyline's chords stray from the spline through its points. */
+function chordError(pts: Vec2[]): number {
+  let e = 0;
+  for (let i = 1; i + 1 < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i + 1], p = pts[i];
+    const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
+    e = Math.max(e, Math.abs((p[0] - a[0]) * dy - (p[1] - a[1]) * dx) / l);
+  }
+  return e;
 }
 
 function extrudeSurfaces(polys: Vec2[][], h: number): SurfaceDef[] {
@@ -249,7 +340,8 @@ function extrudeSurfaces(polys: Vec2[][], h: number): SurfaceDef[] {
         const dx = p.b[0] - p.a[0], dy = p.b[1] - p.a[1], l = Math.hypot(dx, dy);
         if (l < 1e-12) continue;
         defs.push({ type: 'plane', origin: [p.a[0], p.a[1], 0], normal: [dy / l, -dx / l, 0], tol: 0 });
-      } else defs.push({ type: 'cylinder', origin: [p.c[0], p.c[1], 0], axis: [0, 0, 1], radius: p.r, tol: p.sag * 1.5 });
+      } else if (p.kind === 'arc') defs.push({ type: 'cylinder', origin: [p.c[0], p.c[1], 0], axis: [0, 0, 1], radius: p.r, tol: p.sag * 1.5 });
+      else defs.push({ type: 'nurbs', surf: extrusionSurface(interpolateCurve(p.pts.map(to3)), 0, h), tol: chordError(p.pts) + 1e-9, hint: { mode: 'extrude', poly: p.pts, z0: 0, z1: h } });
     }
   return defs;
 }
@@ -270,6 +362,9 @@ function revolveSurfaces(polys: Vec2[][], ringTol: number): SurfaceDef[] {
           const [ra, za, rb, zb] = y1 < y2 ? [x1, y1, x2, y2] : [x2, y2, x1, y1];
           defs.push(coneDef(ra, za, rb, zb, ringTol));
         }
+      } else if (p.kind === 'spline') {
+        if (p.pts.some((q) => q[0] < -eps)) continue;
+        defs.push({ type: 'nurbs', surf: revolutionSurface(interpolateCurve(p.pts.map(to3))), tol: ringTol + chordError(p.pts), hint: { mode: 'revolve', poly: p.pts } });
       } else if (Math.abs(p.c[0]) <= 1e-7 * Math.max(1, scale)) {
         defs.push({ type: 'sphere', center: [0, 0, p.c[1]], radius: p.r, tol: ringTol + p.sag * 1.5 });
       } else if (p.c[0] > 0) {
@@ -277,5 +372,53 @@ function revolveSurfaces(polys: Vec2[][], ringTol: number): SurfaceDef[] {
       }
     }
   }
+  return defs;
+}
+
+// ------------------------------------------------------------------ Minkowski rounding
+
+/**
+ * Surfaces of `core` grown by a ball of radius r (Minkowski sum): every face moves out by r, every
+ * convex edge becomes a cylinder and every corner a sphere. `seg` is the ball's segment count.
+ */
+export function minkowskiSurfaces(core: Manifold, r: number, seg: number): SurfaceDef[] {
+  const mesh = core.getMesh();
+  const P = mesh.vertProperties, np = mesh.numProp, T = mesh.triVerts;
+  const vert = (i: number): Vec3 => [P[i * np], P[i * np + 1], P[i * np + 2]];
+  const nt = T.length / 3;
+  let scale = 1;
+  for (let i = 0; i < P.length; i++) scale = Math.max(scale, Math.abs(P[i]));
+  const eps = 1e-6 * scale;
+  const tol = r * (1 - Math.cos((2 * Math.PI) / Math.max(6, seg))) * 1.5 + eps;
+  const defs: SurfaceDef[] = [];
+  const planes: { n: Vec3; d: number }[] = [];
+  const triPlane: number[] = [];
+  for (let t = 0; t < nt; t++) {
+    const a = vert(T[t * 3]), b = vert(T[t * 3 + 1]), c = vert(T[t * 3 + 2]);
+    const cr = v3.cross(v3.sub(b, a), v3.sub(c, a));
+    if (v3.len(cr) < 1e-14) { triPlane.push(-1); continue; }
+    const n = v3.norm(cr), d = v3.dot(n, a);
+    let k = planes.findIndex((q) => v3.dot(q.n, n) > 1 - 1e-9 && Math.abs(q.d - d) < eps);
+    if (k < 0) { k = planes.length; planes.push({ n, d }); defs.push({ type: 'plane', origin: v3.scale(n, d + r), normal: n, tol: 0 }); }
+    triPlane.push(k);
+  }
+  // convex edges between different planes -> cylinders; their end points -> spheres
+  const edges = new Map<string, number>();
+  const corners = new Map<string, Vec3>();
+  for (let t = 0; t < nt; t++)
+    for (let e = 0; e < 3; e++) {
+      const i = T[t * 3 + e], j = T[t * 3 + ((e + 1) % 3)];
+      const key = `${Math.min(i, j)}_${Math.max(i, j)}`;
+      const other = edges.get(key);
+      if (other === undefined) { edges.set(key, t); continue; }
+      const p1 = triPlane[t], p2 = triPlane[other];
+      if (p1 < 0 || p2 < 0 || p1 === p2) continue;
+      const a = vert(i), b = vert(j);
+      const axis = v3.norm(v3.sub(b, a));
+      const dup = defs.some((d) => d.type === 'cylinder' && Math.abs(Math.abs(v3.dot(d.axis, axis)) - 1) < 1e-9 && v3.len(v3.cross(v3.sub(a, d.origin), d.axis)) < eps);
+      if (!dup) defs.push({ type: 'cylinder', origin: a, axis, radius: r, tol });
+      for (const p of [a, b]) corners.set(p.map((x) => x.toFixed(6)).join(','), p);
+    }
+  for (const p of corners.values()) defs.push({ type: 'sphere', center: p, radius: r, tol });
   return defs;
 }

@@ -69,7 +69,7 @@ npm run cli -- params path/to/project
 
 ## Limits
 
-The kernel is mesh-based (Manifold). STEP export rebuilds exact surfaces for planes, cylinders, cones, spheres and tori (boxes, cylinders, spheres, holes, extrusions and revolves of sketches, and booleans of these), with exact lines and circles and fitted B-spline edges where two curved surfaces cross. Surfaces from other operations (fillets via Minkowski sums, sweeps, lofts, hulls, non-uniform scaling, text curves) are written as flat facets inside the same B-rep. Strength checks are hand-calculation estimates, not a finite-element solve, and simulation integrates joint-space dynamics rather than full contact physics.
+The kernel is mesh-based (Manifold). STEP export rebuilds exact surfaces for planes, cylinders, cones, spheres and tori (boxes, cylinders, spheres, holes, extrusions and revolves of sketches, and booleans of these), with exact lines and circles and fitted B-spline edges where two curved surfaces cross. Rounded boxes, whole-solid fillets and offsets come out as planes, cylinders and spheres; stretched (non-uniformly scaled) shapes as exact rational B-spline surfaces; curved sketch outlines and text as B-spline walls; sweeps, pipes and lofts as smooth B-spline patches through the swept sections. Hulls and anything else the exporter cannot trace are written as flat facets inside the same B-rep. Strength checks are hand-calculation estimates, not a finite-element solve, and simulation integrates joint-space dynamics rather than full contact physics.
 
 ## Layout
 

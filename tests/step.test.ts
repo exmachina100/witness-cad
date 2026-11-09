@@ -65,12 +65,6 @@ describe('exact STEP export', () => {
     expect(mir.faces).toBeLessThan(15);
   });
 
-  it('falls back to flat facets for surfaces it cannot trace', () => {
-    const b = buildBrep(worldMeshes(build('return cylinder(10, 5, undefined, 16).scale([1, 2, 1]);').objects)[0]);
-    expect(b.curvedFaces).toBe(0);
-    expect(b.faces.length).toBe(18);
-  });
-
   it('exports every example as exact B-rep', async () => {
     const { EXAMPLES } = await import('../src/app/examples');
     for (const ex of EXAMPLES) {
@@ -83,6 +77,53 @@ describe('exact STEP export', () => {
       expect(Math.abs(rb.volume - mv) / mv, ex.id).toBeLessThan(0.01);
     }
   }, 120000);
+});
+
+describe('exact STEP export of free-form shapes', () => {
+  const kinds = (b: ReturnType<typeof buildBrep>) => b.faces.reduce((a: Record<string, number>, f) => { const t = b.surfaces[f.surface].type; a[t] = (a[t] ?? 0) + 1; return a; }, {});
+  const meshVol = (src: string) => build(src).objects[0].stats!.volume;
+
+  // [script, true volume (0 = compare with the mesh), expected faces]
+  const cases: [string, string, number, number][] = [
+    ['stretched cylinder', 'return cylinder(10, 5, undefined, 16).scale([1, 2, 1]);', PI * 5 * 10 * 10, 3],
+    ['stretched sphere', 'return sphere(10, 16).scale([1, 1, 0.5]);', (4 / 3) * PI * 1000 * 0.5, 2],
+    ['rounded box', 'return roundedBox(40, 30, 20, 4);', 32 * 22 * 12 + 8 * (32 * 22 + 22 * 12 + 12 * 32) + PI * 16 * 66 + (4 / 3) * PI * 64, 26],
+    ['swept cylinder', 'return sweep(circle2d(5, 64), Curve.Line([0, 0, 0], [0, 0, 40]));', PI * 25 * 40, 4],
+    ['loft square to circle', 'return loft([rect(20, 20, true), circle2d(8)], [0, 30]);', 0, 6],
+    ['sweep along a curve', 'return sweep(rect(6, 4, true), Curve.Fit([[0, 0, 0], [20, 10, 5], [40, 0, 10], [60, 10, 0]]));', 0, 6],
+    ['sweep with a hole', 'return sweep(difference2d(rect(10, 10, true), circle2d(3)), Curve.Fit([[0, 0, 0], [20, 10, 5], [40, 0, 10]]));', 0, 8],
+    ['bent pipe', 'return pipeRoute([[0, 0, 0], [40, 0, 0], [40, 30, 0], [40, 30, 30]], 4, { bendRadius: 10, wall: 1 });', 0, 6],
+    ['variable sweep', 'return variableSweep(Curve.Fit([[0, 0, 0], [20, 10, 5], [40, 0, 10]]), [{ t: 0, profile: circle2d(5) }, { t: 1, profile: rect(6, 6, true) }]);', 0, 6],
+  ];
+  for (const [name, src, volume, faces] of cases)
+    it(`${name}: smooth surfaces`, async () => {
+      const text = step(src);
+      expect(text).toContain('ADVANCED_BREP_SHAPE_REPRESENTATION');
+      expect(text).not.toContain('FACETED_BREP');
+      const rb = await readStep(text, 0.01);
+      expect(rb.ok).toBe(true);
+      expect(rb.faces).toBe(faces);
+      const ref = volume || meshVol(src);
+      expect(Math.abs(rb.volume - ref) / ref).toBeLessThan(volume ? 2e-3 : 1e-2);
+    }, 60000);
+
+  it('writes B-spline surfaces for stretched shapes, text and lofts', () => {
+    for (const src of ['return cylinder(10, 5).scale([1, 2, 1]);', 'return text2d("Sg", { size: 20 }).extrude(3);', 'return loft([rect(20, 20, true), circle2d(8)], [0, 30]);'])
+      expect(step(src), src).toContain('B_SPLINE_SURFACE_WITH_KNOTS');
+  });
+
+  it('splits rounded solids into planes, cylinders and spheres', () => {
+    const b = buildBrep(worldMeshes(build('return roundedBox(40, 30, 20, 4);').objects)[0]);
+    expect(kinds(b)).toEqual({ plane: 6, cylinder: 12, sphere: 8 });
+  });
+
+  it('keeps text compact: one face per stroke side', async () => {
+    const src = 'return text2d("Sg", { size: 20 }).extrude(3);';
+    const b = buildBrep(worldMeshes(build(src).objects)[0]);
+    expect(b.faces.length).toBeLessThan(40);
+    const rb = await readStep(step(src), 0.01);
+    expect(Math.abs(rb.volume - meshVol(src)) / meshVol(src)).toBeLessThan(1e-2);
+  }, 60000);
 });
 
 describe('profile analysis', () => {

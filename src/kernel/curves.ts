@@ -4,6 +4,8 @@ import { mat4, toVec3, v3, Vec2, Vec3 } from './math';
 import { Shape } from './shape';
 import { Sketch } from './sketch';
 import { ForgeError } from './errors';
+import { registerSurfacesById, SurfaceDef } from './surfaces';
+import { interpolateSurface, interpolationError } from './nurbs';
 
 export class Curve3D {
   readonly kind = 'curve3d';
@@ -261,6 +263,116 @@ function outerLoop(s: Sketch, n: number): Vec2[] {
   return [...loop.slice(k), ...loop.slice(0, k)];
 }
 
+const SHARP = Math.cos((35 * Math.PI) / 180);
+const MAX_PATCH = 100;
+
+/** Turn cosine at b between segments a->b and b->c (1 = straight). */
+function turnCos(a: Vec3, b: Vec3, c: Vec3): number {
+  const u = v3.sub(b, a), w = v3.sub(c, b);
+  const lu = v3.len(u), lw = v3.len(w);
+  if (lu < 1e-12 || lw < 1e-12) return 1;
+  return v3.dot(u, w) / (lu * lw);
+}
+
+/** Split [0, n) (or [0, n] when open) into segments at sharp indices; closed loops get at least two. */
+function splits(n: number, closed: boolean, sharp: boolean[]): number[] {
+  let cut: number[] = [];
+  for (let i = 0; i < n; i++) if (sharp[i] && (closed || (i > 0 && i < n - 1))) cut.push(i);
+  if (closed) {
+    if (cut.length === 0) cut = [0, Math.floor(n / 2)];
+    else if (cut.length === 1) cut.push((cut[0] + Math.floor(n / 2)) % n);
+    cut.sort((a, b) => a - b);
+  } else cut = [0, ...cut, n - 1];
+  // cap patch size so the interpolation solves stay small
+  const out: number[] = [];
+  const segs = closed ? cut.length : cut.length - 1;
+  for (let k = 0; k < segs; k++) {
+    const a = cut[k], b = closed && k === cut.length - 1 ? cut[0] + n : cut[k + 1];
+    out.push(a);
+    const parts = Math.ceil((b - a) / MAX_PATCH);
+    for (let q = 1; q < parts; q++) out.push((a + Math.round(((b - a) * q) / parts)) % (closed ? n : Infinity));
+  }
+  if (!closed) out.push(cut[cut.length - 1]);
+  return closed ? [...new Set(out)].sort((a, b) => a - b) : out;
+}
+
+function planeOf(pts: Vec3[]): { origin: Vec3; normal: Vec3; dev: number } | null {
+  const c = v3.scale(pts.reduce((s, p) => v3.add(s, p), [0, 0, 0] as Vec3), 1 / pts.length);
+  let n: Vec3 = [0, 0, 0];
+  for (let i = 0; i < pts.length; i++) {
+    const a = v3.sub(pts[i], c), b = v3.sub(pts[(i + 1) % pts.length], c);
+    n = v3.add(n, v3.cross(a, b));
+  }
+  if (v3.len(n) < 1e-14) return null;
+  n = v3.norm(n);
+  let dev = 0;
+  for (const p of pts) dev = Math.max(dev, Math.abs(v3.dot(v3.sub(p, c), n)));
+  return { origin: c, normal: n, dev };
+}
+
+/**
+ * Exact surfaces of a ring mesh: the side wall is split into patches at sharp profile corners and sharp
+ * path corners, and each patch becomes a B-spline surface interpolating the ring points (or a plane when
+ * the patch is flat). Returns the patch tag of every side quad and the surface definitions.
+ */
+function ringSurfaces(rings: Vec3[][], closedPath: boolean) {
+  const R = rings.length, n = rings[0].length;
+  const ringCount = closedPath ? R : R - 1;
+  let size = 0;
+  for (const r of rings) for (const p of r) size = Math.max(size, Math.abs(p[0]), Math.abs(p[1]), Math.abs(p[2]));
+  const eps = 1e-7 * Math.max(1, size);
+  const colSharp: boolean[] = [], rowSharp: boolean[] = [];
+  for (let j = 0; j < n; j++) {
+    let c = 1;
+    for (const r of rings) c = Math.min(c, turnCos(r[(j - 1 + n) % n], r[j], r[(j + 1) % n]));
+    colSharp.push(c < SHARP);
+  }
+  for (let i = 0; i < R; i++) {
+    if (!closedPath && (i === 0 || i === R - 1)) { rowSharp.push(false); continue; }
+    let c = 1;
+    for (let j = 0; j < n; j++) c = Math.min(c, turnCos(rings[(i - 1 + R) % R][j], rings[i][j], rings[(i + 1) % R][j]));
+    rowSharp.push(c < SHARP);
+  }
+  const cols = splits(n, true, colSharp);
+  const rows = splits(R, closedPath, rowSharp);
+  // segment index of every quad column / row
+  const colSeg = new Int32Array(n), rowSeg = new Int32Array(ringCount);
+  const segOf = (cuts: number[], count: number, closed: boolean, out: Int32Array) => {
+    const nseg = closed ? cuts.length : cuts.length - 1;
+    for (let k = 0; k < nseg; k++) {
+      const a = cuts[k], b = closed && k === cuts.length - 1 ? cuts[0] + count : cuts[k + 1];
+      for (let q = a; q < b; q++) out[q % count] = k;
+    }
+    return nseg;
+  };
+  const nCol = segOf(cols, n, true, colSeg);
+  const nRow = segOf(rows, R, closedPath, rowSeg);
+  const defs: SurfaceDef[] = [];
+  const range = (cuts: number[], k: number, count: number, closed: boolean) => {
+    const a = cuts[k], b = closed && k === cuts.length - 1 ? cuts[0] + count : cuts[k + 1];
+    const idx: number[] = [];
+    for (let q = a; q <= b; q++) idx.push(q % count);
+    return idx;
+  };
+  for (let ri = 0; ri < nRow; ri++) {
+    const ii = range(rows, ri, R, closedPath);
+    for (let ci = 0; ci < nCol; ci++) {
+      const jj = range(cols, ci, n, true);
+      const grid = ii.map((i) => jj.map((j) => rings[i][j]));
+      const tag = 1 + ri * nCol + ci;
+      const flat = grid.flat();
+      const pl = planeOf([...grid[0], ...grid[grid.length - 1].slice().reverse()]);
+      let dev = Infinity;
+      if (pl) { dev = 0; for (const p of flat) dev = Math.max(dev, Math.abs(v3.dot(v3.sub(p, pl.origin), pl.normal))); }
+      if (pl && dev <= eps * 10) { defs.push({ type: 'plane', origin: pl.origin, normal: pl.normal, tol: dev + eps, tag }); continue; }
+      const surf = interpolateSurface(grid);
+      defs.push({ type: 'nurbs', surf, tol: interpolationError(surf, grid) * 1.5 + eps, tag });
+    }
+  }
+  const quadTag = (i: number, j: number) => 1 + rowSeg[i] * nCol + colSeg[j];
+  return { defs, quadTag, capTag0: 1 + nRow * nCol, capTag1: 2 + nRow * nCol, eps };
+}
+
 /** Build a closed solid from rings of equal size; caps triangulated from the first and last ring. */
 export function solidFromRings(rings: Vec3[][], cap2d: { first: Vec2[]; last: Vec2[] } | null, closedPath = false): Shape {
   const k = K();
@@ -268,32 +380,49 @@ export function solidFromRings(rings: Vec3[][], cap2d: { first: Vec2[]; last: Ve
   const verts: number[] = [];
   for (const r of rings) for (const p of r) verts.push(p[0], p[1], p[2]);
   const tris: number[] = [];
+  const fids: number[] = [];
   const R = rings.length;
   const ringCount = closedPath ? R : R - 1;
+  let rs: ReturnType<typeof ringSurfaces> | null = null;
+  try { rs = ringSurfaces(rings, closedPath); } catch { rs = null; }
   for (let i = 0; i < ringCount; i++) {
     const i2 = (i + 1) % R;
     for (let j = 0; j < n; j++) {
       const a = i * n + j, b = i * n + ((j + 1) % n), c = i2 * n + ((j + 1) % n), d = i2 * n + j;
       tris.push(a, b, c, a, c, d);
+      const t = rs ? rs.quadTag(i, j) : 0;
+      fids.push(t, t);
     }
   }
+  const capDefs: SurfaceDef[] = [];
   if (!closedPath && cap2d) {
     const t0 = k.triangulate([cap2d.first] as any, 1e-6);
-    for (const t of t0) tris.push(t[0], t[2], t[1]);
+    for (const t of t0) { tris.push(t[0], t[2], t[1]); fids.push(rs ? rs.capTag0 : 0); }
     const off = (R - 1) * n;
     const t1 = k.triangulate([cap2d.last] as any, 1e-6);
-    for (const t of t1) tris.push(off + t[0], off + t[1], off + t[2]);
+    for (const t of t1) { tris.push(off + t[0], off + t[1], off + t[2]); fids.push(rs ? rs.capTag1 : 0); }
+    if (rs) {
+      for (const [ring, tag] of [[rings[0], rs.capTag0], [rings[R - 1], rs.capTag1]] as const) {
+        const pl = planeOf(ring);
+        if (pl) capDefs.push({ type: 'plane', origin: pl.origin, normal: pl.normal, tol: pl.dev + rs.eps, tag });
+      }
+    }
   }
-  const mesh = new k.Mesh({ numProp: 3, vertProperties: new Float32Array(verts), triVerts: new Uint32Array(tris) });
-  mesh.merge();
-  let m = new k.Manifold(mesh);
+  // Our own original ID (rather than asOriginal, which recomputes faceIDs) so the patch tags survive.
+  const oid = rs ? k.Manifold.reserveIDs(1) : -1;
+  const build = () => {
+    const extra = rs ? { faceID: new Uint32Array(fids), runIndex: new Uint32Array([0, tris.length]), runOriginalID: new Uint32Array([oid]) } : {};
+    const mesh = new k.Mesh({ numProp: 3, vertProperties: new Float32Array(verts), triVerts: new Uint32Array(tris), ...extra } as any);
+    mesh.merge();
+    return new k.Manifold(mesh);
+  };
+  let m = build();
   if (m.volume() < 0) {
-    // inverted winding: flip every triangle
+    // inverted winding: flip every triangle (face tags stay with their triangles)
     for (let i = 0; i < tris.length; i += 3) [tris[i + 1], tris[i + 2]] = [tris[i + 2], tris[i + 1]];
-    const mesh2 = new k.Mesh({ numProp: 3, vertProperties: new Float32Array(verts), triVerts: new Uint32Array(tris) });
-    mesh2.merge();
-    m = new k.Manifold(mesh2);
+    m = build();
   }
+  if (rs) registerSurfacesById(oid, [...rs.defs, ...capDefs]);
   return new Shape(m);
 }
 

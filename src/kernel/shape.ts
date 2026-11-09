@@ -5,6 +5,7 @@ import { mat4, Mat4, toVec3, v3, Vec3 } from './math';
 import { ForgeError } from './errors';
 import { featureEdges, toTriMesh, triArea, triCentroid, triNormal, TriMesh, vert } from './mesh';
 import { DEFAULT_SEGMENTS, Sketch } from './sketch';
+import { roundedSum } from './ops';
 
 export interface FaceLabel {
   name: string;
@@ -606,7 +607,7 @@ function offsetInward(s: Shape, t: number): Shape {
 }
 
 function offsetOutward(s: Shape, t: number): Shape {
-  return new Shape(s.m.minkowskiSum(K().Manifold.sphere(t, 12)));
+  return new Shape(roundedSum(s.m, t, 12));
 }
 
 // ISO metric thread data: [major diameter, pitch, tap drill, close, normal, loose clearance]
