@@ -29,6 +29,7 @@ export class RunContext {
   explode: any = null;
   compares: any[] = [];
   manufacturing: Record<string, any> = {};
+  feaStudies: any[] = [];
   mocks = new WeakSet<object>();
   warnings: string[] = [];
   currentFile = 'main.forge.js';

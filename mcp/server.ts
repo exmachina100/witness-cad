@@ -15,7 +15,8 @@ import { worldMeshes, ExportMesh } from '../src/export/mesh';
 import { Shape } from '../src/kernel/shape';
 import { K } from '../src/kernel/wasm';
 import { union } from '../src/kernel/ops';
-import { estimateStaticStress } from '../src/kernel/sim';
+import { runFea } from '../src/kernel/feaRun';
+import { summarizeFea } from '../src/kernel/feaStudy';
 import { renderPng, RenderView } from '../src/render/raster';
 import { readDoc, searchDocs, DOCS_INDEX } from '../src/docs';
 import { summarizeBuild } from '../src/app/agent-summary';
@@ -169,13 +170,28 @@ export function createWitnessServer() {
         return { assembly: a.name, joints: Object.entries(loads).map(([j, t]) => { const lim = a.joints.find((x) => x.name === j)?.drive?.maxTorqueNm; return { joint: j, torqueNm: +t.toFixed(4), limitNm: lim, pass: lim == null ? undefined : Math.abs(t) <= lim }; }) };
       }));
     });
-  tool('check_strength', 'Hand-calculation strength estimate (weakest section, axial or cantilever bending). Not a full FEA solve.',
-    { project, draft, newtons: z.number(), direction: z.array(z.number()).length(3).optional(), yield_mpa: z.number().optional().describe('Material yield strength, default 45 (PLA)'), target_safety_factor: z.number().optional() },
-    async ({ project, draft, newtons, direction, yield_mpa, target_safety_factor }) => {
+  tool('check_strength', 'Finite element static stress solve (linear elastic, hexahedral mesh). Runs a study declared with Fea.study.staticStress in the model, or a quick study from fix_face/load_face/newtons. Returns max and 99th-percentile von Mises stress, max displacement, safety factor vs yield, reactions and solver stats.',
+    { project, draft,
+      study: z.string().optional().describe('Name of a declared study; defaults to the first one'),
+      part: z.string().optional().describe('Quick study: part to analyse (default: whole model)'),
+      fix_face: z.string().optional().describe('Quick study: face held fixed, e.g. "bottom" or a face label'),
+      load_face: z.string().optional().describe('Quick study: face the force acts on, e.g. "top"'),
+      newtons: z.number().optional().describe('Quick study: total force in N'),
+      direction: z.array(z.number()).length(3).optional().describe('Quick study: force direction, default [0,0,-1]'),
+      material: z.string().optional().describe('Quick study: Fea.materials key, e.g. aluminum6061T6, isotropicPrintedPla, astmA36StructuralSteel'),
+      target_safety_factor: z.number().optional(),
+      gravity: z.boolean().optional().describe('Quick study: add self weight'),
+      target_elements: z.number().optional().describe('Mesh density (default 12000 elements)'),
+      element_size: z.number().optional().describe('Element edge length in mm (overrides target_elements)') },
+    async ({ project, draft, study, part, fix_face, load_face, newtons, direction, material, target_safety_factor, gravity, target_elements, element_size }) => {
       const r = await build({ project, draft });
       if (!r.ok) throw new Error(r.error?.message);
-      const shape = union([...solidsByName(r).values()]);
-      return json(estimateStaticStress(shape, { loads: [{ newtons, direction: direction ?? [0, 0, -1] }], target: target_safety_factor ? { value: target_safety_factor } : undefined }, { yieldStrengthMPa: yield_mpa ?? 45 }));
+      const quick = fix_face || load_face || newtons != null
+        ? { part, fix: fix_face ?? 'bottom', load: load_face ?? 'top', newtons: newtons ?? 100, direction: direction as any, material: material ?? 'isotropicPrintedPla', targetSafetyFactor: target_safety_factor, gravity }
+        : undefined;
+      if (!quick && !r.feaStudies?.length) throw new Error('the model declares no Fea.study.staticStress studies; pass fix_face, load_face and newtons for a quick study');
+      const res = runFea({ study, quick, targetElements: target_elements, elementSize: element_size, fields: false });
+      return json({ studies: r.feaStudies, result: summarizeFea(res) });
     });
   tool('check_manufacturing', 'Printability/manufacturing checks per object: closed manifold, size vs build volume, overhang area, thin-feature hint, genus.',
     { project, draft, process: z.enum(['fdm', 'sla', 'cnc', 'laser']).optional(), build_volume: z.array(z.number()).length(3).optional() },

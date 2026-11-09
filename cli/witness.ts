@@ -6,6 +6,8 @@ import { runProject, projectResolver, RunResult } from '../src/kernel/runtime';
 import { exportModel, EXPORT_FORMATS } from '../src/export';
 import { renderPng, RenderView } from '../src/render/raster';
 import { summarizeBuild } from '../src/app/agent-summary';
+import { runFea } from '../src/kernel/feaRun';
+import { summarizeFea } from '../src/kernel/feaStudy';
 import { readFiles, store } from '../mcp/store';
 
 const USAGE = `witness <command> <project> [options]
@@ -15,6 +17,8 @@ Commands
   check   <project>                       build and exit 1 if the build or any verify check fails
   params  <project>                       list parameters and their values
   export  <project> --format <fmt> [--out file]   formats: ${Object.keys(EXPORT_FORMATS).join(', ')}
+  strength <project> [--study name] [--fix bottom --load top --newtons 100 --material aluminum6061T6] [--elements 12000]
+                                          finite element stress check; exits 1 below the study's target safety factor
   render  <project> [--view iso|front|top|…] [--out file.png] [--size 1200x800]
 
 <project> is a folder with main.forge.js, a single .forge.js file, or the id of a project in ~/.witness-cad.
@@ -84,6 +88,17 @@ async function main() {
       writeFileSync(out, renderPng(r, { view: (o.view ?? 'iso') as RenderView, width: w, height: h }));
       console.log(`wrote ${out}`);
       process.exit(0);
+    }
+    case 'strength': {
+      if (!r.ok) { console.error(summarizeBuild(r)); process.exit(1); }
+      const quick = o.fix || o.load || o.newtons ? { part: o.part, fix: o.fix ?? 'bottom', load: o.load ?? 'top', newtons: Number(o.newtons ?? 100), direction: o.direction ? o.direction.split(',').map(Number) as any : undefined, material: o.material ?? 'isotropicPrintedPla', targetSafetyFactor: o.target ? Number(o.target) : undefined } : undefined;
+      const res = summarizeFea(runFea({ study: o.study, quick, targetElements: o.elements ? Number(o.elements) : undefined, elementSize: o.size ? Number(o.size) : undefined, fields: false }));
+      console.log(`${res.study}: ${res.material}, ${res.elements} elements, ${res.iterations} CG iterations, ${res.solveMs} ms`);
+      console.log(`  max von Mises   ${res.maxVonMisesMPa} MPa (p99 ${res.p99VonMisesMPa} MPa) at [${res.maxVonMisesAt.join(', ')}]`);
+      console.log(`  max displacement ${res.maxDisplacementMm} mm`);
+      console.log(`  safety factor   ${res.safetyFactor ?? 'n/a'}${res.target != null ? ` (target ${res.target}: ${res.pass ? 'PASS' : 'FAIL'})` : ''}`);
+      for (const w of res.warnings) console.log(`  warning: ${w}`);
+      process.exit(res.pass === false ? 1 : 0);
     }
     default: console.log(USAGE); process.exit(1);
   }

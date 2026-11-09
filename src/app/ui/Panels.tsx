@@ -5,6 +5,7 @@ import { getEngine, download } from '../engine';
 import { runAgent, ChatMessage, AgentEvent } from '../agent';
 import type { InspectMode } from '../components/Viewport';
 import type { WorkspaceCtx } from './Workspace';
+import { StrengthPanel } from './Strength';
 import { Icon } from './icons';
 import { ago, fmtBytes, toast, blobToDataUrl } from './util';
 
@@ -399,10 +400,9 @@ const MODES: [InspectMode, string][] = [
 ];
 export function InspectPanel(ctx: WorkspaceCtx) {
   const { opts, setOpts, result, vp, project, motion, setMotion, jointValues, setJoints } = ctx;
-  const [tab, setTab] = useState<'view' | 'model' | 'motion' | 'tools'>('view');
+  const [tab, setTab] = useState<'view' | 'model' | 'motion' | 'strength' | 'tools'>('view');
   const [report, setReport] = useState<any>(null);
   const [loads, setLoads] = useState<Record<string, number> | null>(null);
-  const [fea, setFea] = useState<any>(null);
   const asm = result?.assemblies[0];
 
   const checkInterference = async () => {
@@ -422,7 +422,7 @@ export function InspectPanel(ctx: WorkspaceCtx) {
 
   return (
     <div className="panel">
-      <div className="seg">{(['view', 'model', 'motion', 'tools'] as const).map((t) => <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}</button>)}</div>
+      <div className="seg">{(['view', 'model', 'motion', 'strength', 'tools'] as const).map((t) => <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}</button>)}</div>
 
       {tab === 'view' && <>
         <div className="row" style={{ flexWrap: 'wrap' }}>
@@ -503,6 +503,8 @@ export function InspectPanel(ctx: WorkspaceCtx) {
         ))}
       </>}
 
+      {tab === 'strength' && <StrengthPanel {...ctx} />}
+
       {tab === 'tools' && <>
         <button onClick={() => setOpts({ ...opts, mode: 'distance' })}>Measure distance (click two points)</button>
         {ctx.measure != null && <div className="chip">{ctx.measure.toFixed(3)} mm</div>}
@@ -512,12 +514,6 @@ export function InspectPanel(ctx: WorkspaceCtx) {
           <button onClick={async () => setLoads(await getEngine().call('jointLoads', { assembly: asm.name, values: jointValues[asm.name] }))}>Joint torque (gravity)</button>
           {loads && <table className="t"><tbody>{Object.entries(loads).map(([k, v]) => <tr key={k}><td>{k}</td><td className="mono">{v.toFixed(3)} N·m</td></tr>)}</tbody></table>}
         </>}
-        <button onClick={async () => { try { setFea(await getEngine().call('fea', { study: { loads: [{ newtons: 100, direction: [0, 0, -1] }] }, material: { yieldStrengthMPa: 45 } })); } catch (e: any) { toast(e.message); } }}>Strength estimate (100 N, PLA)</button>
-        {fea && <div className="check col" style={{ gap: 2 }}>
-          <span>Max stress ≈ {fea.maxStressMPa.toFixed(2)} MPa ({fea.method})</span>
-          <span>Safety factor ≈ {fea.safetyFactor.toFixed(2)}</span>
-          <span className="muted">Hand-calc estimate from the weakest section, not a full FEA solve.</span>
-        </div>}
       </>}
     </div>
   );
