@@ -23,7 +23,7 @@ return { "starter plate": base.subtract(hole) };
 Files, Agent, Params, 2D views, Make, Artifacts and Inspect live on the left rail. The viewport and the code editor share the centre. Use ⌘S to save and rebuild, ⌘P to find a file, and ⌘⇧P for the command palette.
 
 ## Pages
-core · sketch · curves · assembly · output · viewport · helpers · lib · agents · cli` },
+core · sketch · curves · assembly · output · viewport · helpers · surfaces · lib · agents · cli` },
   { id: 'core', title: 'Core API', body: `# Core API
 
 ## Primitives
@@ -265,6 +265,36 @@ Edges are listed in \`SHEET_METAL_EDGES\`; \`part.regionNames()\` lists base and
 
 ## Constrained sketch extras
 \`cs.pointAt(x, y)\`, \`cs.lineAt(x1, y1, x2, y2)\`, \`cs.shape(points)\`, \`cs.groupRect({ width })\`, \`cs.group(...)\`, \`cs.route(points, { close })\`, \`cs.shapeWidth/shapeHeight/shapeArea/shapeCentroidX/shapeCentroidY(shape, value)\`, \`cs.shapeEqualCentroid(a, b)\`, \`cs.arcLength(arc?, value)\`, \`cs.lineTangentArc(line, arc)\`, \`cs.arcTangentArc(a, b)\`, \`cs.smoothBlend(a, b)\`, \`cs.referenceFrom(solved, point)\`, \`cs.referenceAllFrom(solved)\`.` },
+  { id: 'surfaces', title: 'Surfaces, blends and product skins', body: `# Surfaces
+
+Sheets are open parametric patches over (u, v) in [0, 1]. Thicken them into solids, sew them into bodies, or use them to split solids.
+
+## Making sheets
+- Analytic: \`Surface.Plane({ width, height, origin, normal })\`, \`Surface.Cylinder({ radius, height, sweep })\`, \`Surface.Cone({ radius1, radius2, height })\`, \`Surface.Sphere({ radius })\`, \`Surface.Torus({ major, minor })\`
+- From curves (points, \`Curve.*\` curves or sketches): \`Surface.Loft(sections)\`, \`Surface.Ruled(a, b)\`, \`Surface.Sweep(profile, path)\`, \`Surface.Tube(path, r)\`, \`Surface.VariableTube(path, [r0, r1, ...])\`, \`Surface.Patch([c0, c1, c2, c3])\` / \`Surface.Boundary\` / \`Surface.BoundaryNet\` (Coons), \`Surface.Fill(closedCurve, { dome })\`, \`Surface.Net(uCurves, vCurves)\`
+- \`Surface.Nurbs({ points })\` interpolates a grid; \`Surface.Nurbs({ control, degree, weights })\` uses control points directly
+
+## Editing
+\`sheet.trim({ u: [a, b], v: [c, d] })\` (or \`Surface.Trim\`), \`sheet.split('u', t)\`, \`sheet.extend(distance, 'u1')\`, \`Surface.Match(a, 'u1', b, 'u0', { continuity: 'G1' })\`, \`sheet.offset(d)\`, \`sheet.flip()\`, transforms like shapes.
+
+## Solids
+\`sheet.thicken(t, { side: 'out' | 'in' | 'both' })\`, \`Thickness.alongU(sheet, [t0, t1])\`, \`Thickness.alongV\`, \`Thickness.grid(sheet, (u, v) => t)\`. \`Surface.Sew([...])\` gives a \`SurfaceBody\` (\`isClosed()\`, \`openEdges()\`), and \`Surface.Solid(body)\` turns a closed body into a solid. \`shape.splitBySurface(sheet)\` splits a solid by a sheet.
+
+## Blends and analysis
+\`Blend.Bridge(a, 'u1', b, 'u0', { tension })\`, \`Blend.Face(a, b)\` (nearest edges), \`Blend.FullRound(a, b)\`.
+\`Analysis.EdgeMatch(a, ea, b, eb)\`, \`Analysis.EdgeContinuity(...)\` (level G0 / G1 / G2 with gap, angle and curvature jump), \`Analysis.CurvatureComb(curve)\`, \`Analysis.SurfaceHealth(sheet)\`, \`Analysis.BRepValidity(shape)\`.
+
+## Sculpting
+\`Sculpt.controlBox({ size, divisions })\` gives a \`Sculpt.ControlCage\`; move points with \`.move([i, j, k], delta)\` or a predicate, \`.scaleLayer('z', k, s)\`, then \`Sculpt.surfaceFromControlCage(cage)\` or \`cage.apply(shape)\` (free-form deformation).
+
+## Product skins
+\`\`\`js
+const skin = Product.skin(Product.profiles({ z: [0, 60, 120], width: [50, 62, 40], depth: [32, 38, 24], roundness: 3 }));
+const shell = skin.toShape();
+const carrier = Carrier.productSkin(skin);
+return shell.subtract(SurfaceMembers.roundedSlot(carrier, { u: 0.25, v: 0.6, length: 18, width: 5, depth: 3 }));
+\`\`\`
+Also \`Product.station(z, { width, depth, roundness, profile })\`, \`Product.rail(points)\`, \`Product.scaleProfileTo(profile, w, d)\`, \`Product.surface(skin)\`, \`Product.panel(skin, { u, v, thickness })\`, \`Product.ribbon(skin, { v, width })\`, \`Product.ref(name, point)\`, \`Product.materials\`. Carriers: \`Carrier.cylinder\`, \`Carrier.plane\`, \`Carrier.productSkin\` with \`frameAt(u, v)\` and \`place(shape, u, v)\`; members \`SurfaceMembers.roundedSlot\`, \`.counterbore\`, \`.ribs\`.` },
   { id: 'lib', title: 'Part library', body: `# Part library
 
 - Stock: \`tube(ox, oy, oz, wall)\`, \`pipe(height, outerR, wall)\`, \`bracket(w, h, d, thick, holeDia)\`, \`holePattern(rows, cols, sx, sy, dia, depth)\`, \`tSlotExtrusion(length)\`, \`profile2020BSlot6(length)\`
