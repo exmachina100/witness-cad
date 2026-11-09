@@ -92,14 +92,14 @@ const L2 = Param.number("Forearm", 100, { min: 50, max: 200, unit: "mm" });
 const base = cylinder(20, 40).color("#3a4350").withConnectors({
   yaw: connector("yaw", { origin: [0, 0, 20], axis: [0, 0, 1], up: [1, 0, 0] }),
 });
-const turret = cylinder(30, 25).color("#5d6b7c").withConnectors({
+const turret = cylinder(30, 25).add(box(16, 30, 14).translate(0, 0, 24)).color("#5d6b7c").withConnectors({
   bottom: connector("bottom", { origin: [0, 0, 0], axis: [0, 0, -1], up: [1, 0, 0] }),
-  shoulder: connector("shoulder", { origin: [0, 0, 22], axis: [0, 1, 0], up: [1, 0, 0] }),
+  shoulder: connector("shoulder", { origin: [0, 0, 36], axis: [0, -1, 0], up: [1, 0, 0] }),
 });
 const link = (len, color) => box(len, 18, 18).translate(len / 2, 0, -9).color(color)
   .add(cylinder(22, 12).rotateX(90).translate(0, 11, 0)).withConnectors({
-    root: connector("root", { origin: [0, 0, 0], axis: [0, -1, 0], up: [1, 0, 0] }),
-    tip: connector("tip", { origin: [len, 0, 0], axis: [0, 1, 0], up: [1, 0, 0] }),
+    root: connector("root", { origin: [0, 0, 0], axis: [0, 1, 0], up: [1, 0, 0] }),
+    tip: connector("tip", { origin: [len, 0, 0], axis: [0, -1, 0], up: [1, 0, 0] }),
   });
 const servo = (deg) => Sim.drive.servo({ maxTorqueNm: 2.5, maxSpeedRpm: 60, stiffnessNmPerDeg: 0.05 });
 

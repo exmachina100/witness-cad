@@ -1,11 +1,13 @@
 // text2d(): outlines from an OpenType font, flattened into a Sketch.
-import * as opentype from 'opentype.js';
+import * as opentypeNs from 'opentype.js';
 import { K } from './wasm';
 import { Sketch } from './sketch';
 import { ForgeError } from './errors';
 import type { Vec2 } from './math';
 
-const fonts = new Map<string, opentype.Font>();
+// the package is ESM-only in bundlers but CommonJS-wrapped under Node loaders
+const opentype: typeof opentypeNs = (opentypeNs as any).default ?? opentypeNs;
+const fonts = new Map<string, opentypeNs.Font>();
 let defaultKey: string | null = null;
 
 export function registerFont(key: string, data: ArrayBuffer, makeDefault = false) {
@@ -33,7 +35,7 @@ function getFont(name?: string) {
   return f;
 }
 
-function flatten(cmds: opentype.PathCommand[], tol: number): Vec2[][] {
+function flatten(cmds: opentypeNs.PathCommand[], tol: number): Vec2[][] {
   const loops: Vec2[][] = [];
   let cur: Vec2[] = [];
   let last: Vec2 = [0, 0];
@@ -59,7 +61,9 @@ function flatten(cmds: opentype.PathCommand[], tol: number): Vec2[][] {
 export function textWidth(content: string, o: { size?: number; letterSpacing?: number; font?: string } = {}) {
   const f = getFont(o.font);
   const size = o.size ?? 10;
-  return f.getAdvanceWidth(content, size) + (o.letterSpacing ?? 0) * Math.max(0, content.length - 1);
+  let w = 0;
+  for (const ch of content) w += (f.charToGlyph(ch).advanceWidth ?? 0) * size / f.unitsPerEm;
+  return w + (o.letterSpacing ?? 0) * Math.max(0, [...content].length - 1);
 }
 
 export function text2d(content: string, o: { size?: number; letterSpacing?: number; align?: 'left' | 'center' | 'right'; baseline?: 'baseline' | 'center' | 'top'; font?: string; flattenTolerance?: number } = {}): Sketch {
@@ -69,9 +73,10 @@ export function text2d(content: string, o: { size?: number; letterSpacing?: numb
   const loops: Vec2[][] = [];
   let x = 0;
   for (const ch of content) {
-    const p = f.getPath(ch, x, 0, size);
-    loops.push(...flatten(p.commands, o.flattenTolerance ?? 0.1));
-    x += f.getAdvanceWidth(ch, size) + ls;
+    // glyph by glyph: avoids OpenType substitution tables some fonts use that the parser cannot apply
+    const g = f.charToGlyph(ch);
+    loops.push(...flatten(g.getPath(x, 0, size).commands, o.flattenTolerance ?? 0.1));
+    x += (g.advanceWidth ?? 0) * size / f.unitsPerEm + ls;
   }
   const k = K();
   let cs = loops.length ? k.CrossSection.ofPolygons(loops as any, 'NonZero' as any) : k.CrossSection.square([1e-6, 1e-6]);
