@@ -15,6 +15,7 @@ import { worldMeshes, ExportMesh } from '../src/export/mesh';
 import { Shape } from '../src/kernel/shape';
 import { K } from '../src/kernel/wasm';
 import { union } from '../src/kernel/ops';
+import { simulateDynamics, holdTest } from '../src/kernel/physics';
 import { runFea } from '../src/kernel/feaRun';
 import { summarizeFea } from '../src/kernel/feaStudy';
 import { renderPng, RenderView } from '../src/render/raster';
@@ -238,10 +239,46 @@ export function createWitnessServer() {
         const solved = live.assemblies.get(a.name)!.solve(a.values);
         const col = solved.collisionReport();
         for (const c of col.collisions as any[]) if (!c.jointed) issues.push(`parts ${c.a} and ${c.b} overlap ${c.volume.toFixed(1)} mm³`);
+        let dynamics: any;
+        try {
+          const sim = simulateDynamics(live.assemblies.get(a.name)!, { duration: 0.5, initial: a.values, sampleHz: 10 });
+          dynamics = { settled: sim.summary.settled, maxPenetrationMm: +sim.summary.maxPenetrationMm.toFixed(2), kineticEnergyJ: +sim.summary.kineticEnergyJ.toFixed(5) };
+          if (sim.summary.maxPenetrationMm > 5) issues.push(`contacts penetrate ${sim.summary.maxPenetrationMm.toFixed(1)} mm in a 0.5 s dynamics run (check colliders and masses)`);
+          for (const [j, d] of Object.entries(sim.summary.drives)) if (d.limit != null && d.saturatedS > 0.25) issues.push(`drive ${j} saturates at its ${d.limit} limit while holding the rest pose`);
+        } catch (e: any) { dynamics = { error: e.message }; issues.push(`dynamics run failed: ${e.message}`); }
         const formats: Record<string, string> = {};
         for (const f of ['urdf', 'mjcf', 'sdf'] as const) { try { const e = exportModel(r, f, { assembly: a.name }); formats[f] = `ok (${typeof e.data === 'string' ? e.data.length : e.data.byteLength} bytes)`; } catch (e: any) { formats[f] = `failed: ${e.message}`; issues.push(`${f} export failed`); } }
-        return { assembly: a.name, mass: a.parts.map((p) => ({ part: p, kg: +solved.massOf(live.assemblies.get(a.name)!.part(p)).toFixed(4) })), exports: formats, issues, pass: issues.length === 0 };
+        return { assembly: a.name, dynamics, mass: a.parts.map((p) => ({ part: p, kg: +solved.massOf(live.assemblies.get(a.name)!.part(p)).toFixed(4) })), exports: formats, issues, pass: issues.length === 0 };
       }));
+    });
+  tool('simulate_model', 'Rigid-body dynamics of each assembly: gravity, contacts with the ground and between parts (convex-hull colliders, friction, restitution), joints as constraints with limits and Sim.drive drives. Returns where every part ends up, whether the model settles, peak drive effort and joint travel.',
+    { project, draft, assembly: z.string().optional(), duration: z.number().optional().describe('seconds, default 2'), dt: z.number().optional().describe('time step in s, default 0.002'),
+      targets: z.record(z.string(), z.number()).optional().describe('servo targets per joint (deg or mm)'), joint_values: z.record(z.string(), z.any()).optional().describe('initial joint values'),
+      ground: z.boolean().optional(), frames: z.number().optional().describe('number of evenly spaced frames of joint values to include (default 5)') },
+    async ({ project, draft, assembly, duration, dt, targets, joint_values, ground, frames = 5 }) => {
+      const r = await build({ project, draft });
+      if (!r.ok) throw new Error(r.error?.message);
+      const names = assembly ? [assembly] : r.assemblies.map((a) => a.name);
+      if (!names.length) return text('No assembly: return an Assembly (or use Sim.drop in the script) to simulate.');
+      return json(names.map((n) => {
+        const asm = live.assemblies.get(n);
+        if (!asm) throw new Error(`no assembly "${n}"`);
+        const res = simulateDynamics(asm, { duration, dt, targets, initial: joint_values, ground: ground === false ? false : undefined, sampleHz: 30 });
+        const pick = frames > 0 ? Array.from({ length: frames }, (_, i) => res.frames[Math.round((i * (res.frames.length - 1)) / Math.max(1, frames - 1))]) : [];
+        const round = (o: Record<string, number>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, +v.toFixed(3)]));
+        return { assembly: n, ...res.summary, parts: Object.fromEntries(Object.entries(res.summary.parts).map(([k, p]) => [k, { displacementMm: +p.displacementMm.toFixed(2), rotationDeg: +p.rotationDeg.toFixed(2), finalCenterMm: p.finalCenterMm.map((x) => +x.toFixed(2)), resting: p.resting }])),
+          final: round(res.final), frames: pick.map((f) => ({ t: +f.t.toFixed(3), values: round(f.values) })), warnings: res.warnings };
+      }));
+    });
+  tool('check_hold', 'Hold test: apply a constant torque (N·m) or force (N) to one joint for a few seconds and check it moves less than max_travel (deg or mm). A control run without the load is subtracted.',
+    { project, draft, assembly: z.string().optional(), joint: z.string(), load: z.number(), seconds: z.number().optional(), max_travel: z.number().optional() },
+    async ({ project, draft, assembly, joint, load, seconds, max_travel }) => {
+      const r = await build({ project, draft });
+      if (!r.ok) throw new Error(r.error?.message);
+      const name = assembly ?? r.assemblies.find((a) => a.joints.some((j) => j.name === joint))?.name;
+      const asm = name ? live.assemblies.get(name) : undefined;
+      if (!asm) throw new Error(`no assembly with joint "${joint}"`);
+      return json(holdTest(asm, { joint, load, seconds, maxTravel: max_travel }));
     });
   tool('read_make_list', 'Parts to make or buy (by process) and the bill of materials.', { project, draft },
     async ({ project, draft }) => {

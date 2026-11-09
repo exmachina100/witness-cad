@@ -147,6 +147,23 @@ return asm;
     },
   },
   {
+    id: 'dominoes', name: 'Domino run', tags: ['assembly', 'sim', 'dynamics'],
+    description: 'A row of tiles on a table. Rigid-body dynamics with contacts knocks them over in turn; a check confirms the last one falls.',
+    files: {
+      'main.forge.js': `const n = Param.number("Dominoes", 8, { min: 2, max: 20, step: 1 });
+const gap = Param.number("Spacing", 22, { min: 12, max: 40, unit: "mm" });
+const tile = box(8, 24, 48);
+// the first tile leans 12° on its front edge so the row starts falling
+const lean = tile.translate(-4, 0, 0).rotate([0, 12, 0]).translate(4, 0, 0);
+let row = assembly("Dominoes").addPart("Table", box(400, 120, 10).translate(150, 0, -10).color("#7a6a58"), { sim: Sim.body({ motion: Sim.motion.static() }) });
+for (let i = 0; i < n; i++) row = row.addPart(\`D\${i + 1}\`, (i ? tile : lean).translate(i * gap, 0, 0).color(i % 2 ? "#e9e4da" : "#2b2f36"));
+const res = row.simulate({ duration: 2.5 });
+verify.greaterThan("last domino falls", res.summary.parts[\`D\${n}\`].rotationDeg, 45);
+return row;
+`,
+    },
+  },
+  {
     id: 'nameplate', name: 'Nameplate', tags: ['text', 'sketch'],
     description: 'Raised text on a rounded plate, ready for two-colour printing.',
     files: {

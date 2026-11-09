@@ -9,6 +9,8 @@ import { summarizeBuild } from '../src/app/agent-summary';
 import { runFea } from '../src/kernel/feaRun';
 import { summarizeFea } from '../src/kernel/feaStudy';
 import { readFiles, store } from '../mcp/store';
+import { live } from '../src/kernel/runtime';
+import { simulateDynamics, holdTest } from '../src/kernel/physics';
 
 const USAGE = `witness <command> <project> [options]
 
@@ -20,6 +22,8 @@ Commands
   strength <project> [--study name] [--fix bottom --load top --newtons 100 --material aluminum6061T6] [--elements 12000]
                                           finite element stress check; exits 1 below the study's target safety factor
   render  <project> [--view iso|front|top|…] [--out file.png] [--size 1200x800]
+  sim     <project> [--seconds 2] [--assembly name] [--target joint=value]   rigid-body dynamics summary
+  sim     <project> --hold joint=load [--seconds 2] [--max-travel 3]          hold test, exits 1 if the joint gives
 
 <project> is a folder with main.forge.js, a single .forge.js file, or the id of a project in ~/.witness-cad.
 Options: --set Name=value (repeatable) overrides parameters; --entry file.forge.js picks the root file.`;
@@ -31,7 +35,8 @@ function args() {
     const a = rest[i];
     if (!a.startsWith('--')) continue;
     const k = a.slice(2), v = rest[i + 1];
-    if (k === 'set') { const [n, ...val] = v.split('='); const s = val.join('='); set[n] = s === 'true' ? true : s === 'false' ? false : isNaN(Number(s)) ? s : Number(s); }
+    if (k === 'target') { const [n, val] = v.split('='); (o as any).__targets = { ...((o as any).__targets ?? {}), [n]: Number(val) }; }
+    else if (k === 'set') { const [n, ...val] = v.split('='); const s = val.join('='); set[n] = s === 'true' ? true : s === 'false' ? false : isNaN(Number(s)) ? s : Number(s); }
     else o[k] = v;
     i++;
   }
@@ -87,6 +92,27 @@ async function main() {
       const out = o.out ?? `${proj.name}-${o.view ?? 'iso'}.png`;
       writeFileSync(out, renderPng(r, { view: (o.view ?? 'iso') as RenderView, width: w, height: h }));
       console.log(`wrote ${out}`);
+      process.exit(0);
+    }
+    case 'sim': {
+      if (!r.ok) { console.error(summarizeBuild(r)); process.exit(1); }
+      const name = o.assembly ?? r.assemblies[0]?.name;
+      const asm = name ? live.assemblies.get(name) : undefined;
+      if (!asm) { console.error('no assembly to simulate'); process.exit(1); }
+      const seconds = o.seconds ? Number(o.seconds) : 2;
+      if (o.hold) {
+        const [joint, load] = o.hold.split('=');
+        const h = holdTest(asm, { joint, load: Number(load), seconds, maxTravel: o['max-travel'] ? Number(o['max-travel']) : undefined });
+        console.log(`hold ${joint} with ${h.load} ${h.unit} for ${seconds} s: travel ${h.travel.toFixed(3)} ${h.travelUnit} (max ${h.maxTravel}) -> ${h.pass ? 'PASS' : 'FAIL'}`);
+        process.exit(h.pass ? 0 : 1);
+      }
+      const res = simulateDynamics(asm, { duration: seconds, targets: (o as any).__targets });
+      const s = res.summary;
+      console.log(`${name}: ${s.bodies} bodies, ${s.steps} steps of ${(s.dt * 1000).toFixed(1)} ms, ${s.settled ? 'settled' : 'still moving'}, max penetration ${s.maxPenetrationMm.toFixed(2)} mm`);
+      for (const [p, v] of Object.entries(s.parts)) console.log(`  ${p}: moved ${v.displacementMm.toFixed(2)} mm, turned ${v.rotationDeg.toFixed(1)}°, ends at [${v.finalCenterMm.map((x) => x.toFixed(1)).join(', ')}]`);
+      for (const [j, t] of Object.entries(s.jointTravel)) console.log(`  joint ${j}: ${t.start.toFixed(2)} -> ${t.end.toFixed(2)} (range ${t.min.toFixed(2)}..${t.max.toFixed(2)})`);
+      for (const [j, d] of Object.entries(s.drives)) console.log(`  drive ${j}: peak ${d.peakEffort.toFixed(3)}${d.limit != null ? ` of ${d.limit}` : ''}${d.saturatedS ? `, saturated ${d.saturatedS.toFixed(2)} s` : ''}`);
+      for (const w of res.warnings) console.log(`  warning: ${w}`);
       process.exit(0);
     }
     case 'strength': {

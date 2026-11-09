@@ -9,6 +9,7 @@ import { bom, dim, Manufacturing, sketchToDxf, sketchToSvg } from './output';
 import { scene, cutPlane, explodeView, compareWith, mock, Viewport } from './viewport';
 import { assembly, connector, Spring, Assembly } from './assembly';
 import { Sim, Fea, PhysicalMaterial, PhysicalProperties } from './sim';
+import './physics';
 import { Curve, loft, sweep, variableSweep, Loft } from './curves';
 import * as lib from './lib';
 import { text2d, textWidth, loadFont } from './text';
