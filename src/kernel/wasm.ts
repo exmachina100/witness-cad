@@ -1,6 +1,7 @@
 // Loads the Manifold WASM geometry kernel once, in the browser, a worker or Node.
 import Module from 'manifold-3d';
 import type { ManifoldToplevel } from 'manifold-3d';
+import { installSurfaceTracking } from './surfaces';
 
 let instance: ManifoldToplevel | null = null;
 let loading: Promise<ManifoldToplevel> | null = null;
@@ -13,6 +14,7 @@ export async function initKernel(wasmUrl?: string): Promise<ManifoldToplevel> {
       if (wasmUrl) opts.locateFile = () => wasmUrl;
       const m = await (Module as any)(opts);
       m.setup();
+      installSurfaceTracking(m);
       instance = m as ManifoldToplevel;
       return instance;
     })();

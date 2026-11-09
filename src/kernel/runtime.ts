@@ -10,8 +10,10 @@ import { ConstraintSketch } from './constraints';
 import { Curve3D } from './curves';
 import { mat4, Mat4 } from './math';
 import type { Manifold } from 'manifold-3d';
+import { MeshRuns, SurfaceDef, surfaceTable } from './surfaces';
 
-export interface MeshData { positions: Float32Array; indices: Uint32Array }
+/** `runs` + `surfaces` let exporters rebuild exact surfaces (see kernel/surfaces.ts). */
+export interface MeshData { positions: Float32Array; indices: Uint32Array; runs?: MeshRuns; surfaces?: Record<number, SurfaceDef[]> }
 export interface SceneObject {
   id: string;
   name: string;
@@ -186,7 +188,7 @@ function toError(e: any, file: string): RunResult['error'] {
 }
 
 let objCounter = 0;
-function meshOf(s: Shape): MeshData { const m = s.mesh; return { positions: m.positions, indices: m.indices }; }
+function meshOf(s: Shape): MeshData { const m = s.mesh; return { positions: m.positions, indices: m.indices, runs: m.runs, surfaces: surfaceTable(m.runs) }; }
 
 function sketchLines(s: Sketch): Float32Array {
   const out: number[] = [];

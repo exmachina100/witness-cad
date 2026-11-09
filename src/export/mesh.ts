@@ -1,8 +1,13 @@
 // Common mesh preparation for exporters: world-space triangles per object.
 import type { SceneObject } from '../kernel/runtime';
-import { mat4 } from '../kernel/math';
+import { mat4, Mat4 } from '../kernel/math';
+import type { MeshRuns, SurfaceDef } from '../kernel/surfaces';
 
-export interface ExportMesh { name: string; positions: Float32Array; indices: Uint32Array; color: [number, number, number, number]; material?: any }
+/** `exact`: triangle runs and the analytic surfaces behind them (see kernel/surfaces.ts); `transform` is the placement already applied to `positions`. */
+export interface ExportMesh {
+  name: string; positions: Float32Array; indices: Uint32Array; color: [number, number, number, number]; material?: any;
+  exact?: { runs: MeshRuns; surfaces: Record<number, SurfaceDef[]>; transform?: Mat4 };
+}
 
 export function hexToRgba(hex?: string, opacity = 1): [number, number, number, number] {
   if (!hex) return [0.62, 0.66, 0.72, opacity];
@@ -26,7 +31,8 @@ export function worldMeshes(objects: SceneObject[], opts: { includeMocks?: boole
         positions[i] = p[0]; positions[i + 1] = p[1]; positions[i + 2] = p[2];
       }
     }
-    out.push({ name: o.name, positions, indices: o.mesh.indices, color: hexToRgba(o.color, o.material?.opacity ?? 1), material: o.material });
+    const exact = o.mesh.runs && o.mesh.surfaces ? { runs: o.mesh.runs, surfaces: o.mesh.surfaces, transform: T || undefined } : undefined;
+    out.push({ name: o.name, positions, indices: o.mesh.indices, color: hexToRgba(o.color, o.material?.opacity ?? 1), material: o.material, exact });
   }
   return out;
 }

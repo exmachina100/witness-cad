@@ -6,7 +6,7 @@ export const EXPORT_FORMATS = {
   glb: { label: 'GLB (glTF binary)', ext: 'glb', mime: 'model/gltf-binary', group: 'Mesh' },
   obj: { label: 'OBJ + MTL (zip)', ext: 'zip', mime: 'application/zip', group: 'Mesh' },
   ply: { label: 'PLY', ext: 'ply', mime: 'text/plain', group: 'Mesh' },
-  step: { label: 'STEP (faceted B-rep, AP214)', ext: 'step', mime: 'model/step', group: 'CAD' },
+  step: { label: 'STEP (exact B-rep, AP214)', ext: 'step', mime: 'model/step', group: 'CAD' },
   usd: { label: 'USD (usda)', ext: 'usda', mime: 'text/plain', group: 'Simulation' },
   urdf: { label: 'URDF + meshes (zip)', ext: 'zip', mime: 'application/zip', group: 'Simulation' },
   mjcf: { label: 'MJCF / MuJoCo + meshes (zip)', ext: 'zip', mime: 'application/zip', group: 'Simulation' },

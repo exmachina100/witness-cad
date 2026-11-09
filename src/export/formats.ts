@@ -1,4 +1,6 @@
-// Mesh exporters: STL, OBJ, 3MF, GLB, PLY, USDA, STEP (faceted B-rep), plus SVG drawings.
+// Mesh exporters: STL, OBJ, 3MF, GLB, PLY, USDA, STEP (exact B-rep, faceted fallback), plus SVG drawings.
+import { escStep, toStepExact } from './step';
+import { BrepError } from './brep';
 import { zipSync, strToU8 } from 'fflate';
 import { ExportMesh, merged, safeName } from './mesh';
 
@@ -169,10 +171,21 @@ export function toUsda(meshes: ExportMesh[], opts: { name?: string; physics?: bo
 }
 
 /**
- * ISO 10303-21 (AP214) file holding each solid as a faceted B-rep: exact for the tessellated geometry,
- * readable by mainstream CAD tools.
+ * ISO 10303-21 (AP214) STEP file. Solids are written as exact B-rep (true planes, cylinders, cones,
+ * spheres and tori, see brep.ts). If a mesh cannot be rebuilt as a closed B-rep the whole file falls
+ * back to a faceted B-rep, which every CAD tool still opens.
  */
 export function toStep(meshes: ExportMesh[], name = 'witness_model'): string {
+  try {
+    return toStepExact(meshes, name);
+  } catch (e) {
+    if (!(e instanceof BrepError)) console.warn('exact STEP export failed, writing faceted STEP instead:', e);
+    return toStepFaceted(meshes, name);
+  }
+}
+
+/** Faceted B-rep STEP: one planar triangle per face. */
+export function toStepFaceted(meshes: ExportMesh[], name = 'witness_model'): string {
   let id = 0;
   const lines: string[] = [];
   const add = (s: string) => { id++; lines.push(`#${id}=${s};`); return id; };
@@ -211,6 +224,5 @@ export function toStep(meshes: ExportMesh[], name = 'witness_model'): string {
   const now = new Date().toISOString().slice(0, 19);
   return ['ISO-10303-21;', 'HEADER;', `FILE_DESCRIPTION(('Witness CAD faceted B-rep'),'2;1');`, `FILE_NAME('${escStep(name)}.step','${now}',('Witness CAD'),(''),'Witness CAD','Witness CAD','');`, `FILE_SCHEMA(('AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }'));`, 'ENDSEC;', 'DATA;', ...lines, 'ENDSEC;', 'END-ISO-10303-21;'].join('\n');
 }
-const escStep = (s: string) => s.replace(/'/g, "''");
 
 export { safeName };
