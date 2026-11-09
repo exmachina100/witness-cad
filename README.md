@@ -51,7 +51,7 @@ DXF and SVG outlines (`Import.dxfSketch`, `Import.svgSketch`), STL / OBJ / 3MF /
 
 ## Export formats
 
-3MF, STL (binary and ASCII), GLB, OBJ, PLY, STEP (exact B-rep), DXF and SVG outlines (projection or section), USD, URDF, MJCF (MuJoCo), SDF (Gazebo), part drawing SVG, BOM CSV and a manufacturing package zip.
+3MF, STL (binary and ASCII), GLB, OBJ, PLY, STEP (exact B-rep), IGES and BREP (faceted surfaces), G-code (built-in FDM slicer: walls, top/bottom skins, infill), DXF and SVG outlines (projection or section), USD, URDF, MJCF (MuJoCo), SDF (Gazebo), part drawing SVG, BOM CSV and a manufacturing package zip.
 
 ## MCP server
 
@@ -61,7 +61,7 @@ npm run mcp -- --http 8787    # streamable HTTP at http://localhost:8787/mcp
 claude mcp add witness-cad -- npx tsx /path/to/witness-cad/mcp/server.ts
 ```
 
-Projects live in `~/.witness-cad/projects` (set `WITNESS_HOME` to move them). Tools: `read_docs`, `search_docs`, `list_projects`, `create_project`, `list_versions`, `create_draft`, `list_drafts`, `merge_draft`, `read_file`, `write_file`, `edit_file`, `save_version`, `build_model`, `build_variants`, `check_names`, `check_fit`, `check_assembly`, `check_joint_torque`, `check_strength`, `check_manufacturing`, `check_simready` (includes a short dynamics run), `simulate_model`, `check_hold`, `read_make_list`, `compare_versions`, `compare_to_reference`, `check_surfaces`, `paint_model`, `view_model` (PNG from a headless renderer), `render_picture`, `render_video` (turntable GIF), `read_version_picture`, `get_link`, `export_model`, `export_drawing`, `get_job`.
+Projects live in `~/.witness-cad/projects` (set `WITNESS_HOME` to move them). Tools: `read_docs`, `search_docs`, `list_projects`, `create_project`, `list_versions`, `create_draft`, `list_drafts`, `merge_draft`, `read_file`, `write_file`, `edit_file`, `save_version`, `build_model`, `build_variants`, `check_names`, `check_fit`, `check_assembly`, `check_joint_torque`, `check_strength`, `check_manufacturing`, `check_simready` (includes a short dynamics run), `simulate_model`, `check_hold`, `read_make_list`, `compare_versions`, `compare_to_reference`, `check_surfaces`, `paint_model`, `add_surface_detail`, `view_model` (PNG from a headless renderer), `render_picture`, `render_video` (turntable GIF), `read_version_picture`, `get_link`, `export_model`, `export_drawing`, `get_job`.
 
 ## Command line
 

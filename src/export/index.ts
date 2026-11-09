@@ -6,6 +6,9 @@ import { to3mf, toGlb, toObj, toPly, toStep, toStlAscii, toStlBinary, toUsda } f
 import { toMjcf, toSdf, toUrdf } from './robot';
 import { toDrawingSvg } from './drawing';
 import { bomToCsv } from '../kernel/output';
+import { toIges } from './iges';
+import { toOccBrep } from './occBrep';
+import { toGcode, GcodeOptions } from './gcode';
 import { outlineDxf, outlineSvg, OutlineView } from './outline';
 import { zipSync, strToU8 } from 'fflate';
 
@@ -13,7 +16,7 @@ import { EXPORT_FORMATS } from './formats-meta';
 export { EXPORT_FORMATS };
 export type ExportFormat = keyof typeof EXPORT_FORMATS;
 
-export function exportModel(result: RunResult, format: ExportFormat, opts: { name?: string; transforms?: Record<string, number[]>; assembly?: string; view?: OutlineView; at?: number } = {}): { data: Uint8Array | string; filename: string; mime: string } {
+export function exportModel(result: RunResult, format: ExportFormat, opts: { name?: string; transforms?: Record<string, number[]>; assembly?: string; view?: OutlineView; at?: number; gcode?: GcodeOptions } = {}): { data: Uint8Array | string; filename: string; mime: string } {
   const name = (opts.name ?? 'model').replace(/[^\w.-]+/g, '_');
   const meta = EXPORT_FORMATS[format];
   if (!meta) throw new Error(`unknown export format "${format}"`);
@@ -40,6 +43,9 @@ export function exportModel(result: RunResult, format: ExportFormat, opts: { nam
     case 'urdf': data = toUrdf(asm()); break;
     case 'mjcf': data = toMjcf(asm()); break;
     case 'sdf': data = toSdf(asm()); break;
+    case 'iges': data = toIges(meshes(), name); break;
+    case 'brep': data = toOccBrep(meshes()); break;
+    case 'gcode': data = toGcode(meshes(), opts.gcode); break;
     case 'dxf': data = outlineDxf(meshes(), { view: opts.view, at: opts.at }); break;
     case 'svg': data = outlineSvg(meshes(), { view: opts.view, at: opts.at }); break;
     case 'dxf-section': data = outlineDxf(meshes(), { view: 'section', at: opts.at }); break;

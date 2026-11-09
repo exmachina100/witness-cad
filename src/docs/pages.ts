@@ -194,7 +194,7 @@ URDF, MJCF (MuJoCo) and SDF export the assembly's link tree with meshes, masses,
 - \`sketchToSvg(sketch, { stroke, strokeWidth, fill, padding })\`, \`sketchToDxf(sketch, { layer, colorIndex })\`
 
 ## Export formats
-Mesh: 3MF (recommended), STL, GLB, OBJ, PLY. CAD: STEP (AP214 exact B-rep: planes, cylinders, cones, spheres and tori come out as true surfaces, stretched shapes, text, sweeps, pipes and lofts as B-spline surfaces, with lines, circles and B-spline edges; anything the kernel cannot trace back to an exact surface, such as a hull, is written as flat facets). Simulation: USD, URDF, MJCF, SDF. Documents: part drawing (SVG), BOM (CSV), manufacturing package (zip with 3MF, STEP, per-part STL, drawing, BOM and check report).` },
+Mesh: 3MF (recommended), STL, GLB, OBJ, PLY. Printing: G-code from the built-in FDM slicer (0.2 mm layers, 0.45 mm lines, 2 walls, 4 top/bottom layers, 20% rectilinear infill, part centred at 110, 110). CAD: IGES and BREP (faceted surfaces / a faceted OpenCascade solid), DXF/SVG outlines (top, front, right or a section), STEP (AP214 exact B-rep: planes, cylinders, cones, spheres and tori come out as true surfaces, stretched shapes, text, sweeps, pipes and lofts as B-spline surfaces, with lines, circles and B-spline edges; anything the kernel cannot trace back to an exact surface, such as a hull, is written as flat facets). Simulation: USD, URDF, MJCF, SDF. Documents: part drawing (SVG), BOM (CSV), manufacturing package (zip with 3MF, STEP, per-part STL, drawing, BOM and check report).` },
   { id: 'viewport', title: 'Viewport and scene', body: `# Viewport and scene
 
 - \`scene({ background, camera: { position, target, fov }, lights: [{ type, color, intensity, position }], fog, environment, ground, capture })\` — setting lights replaces the defaults; setting camera.position turns off auto-framing.
@@ -220,6 +220,9 @@ Shaded, X-ray, Wireframe, Normals, Zebra, Mask, Colliders, Distance (click two p
 
 ## Metadata
 \`.withPhysicalMaterial(mat)\` / \`.physicalMaterial()\`, \`.withManufacturing(Manufacturing.print())\` / \`.manufacturing()\`, \`.withAssemblyStep(n)\`, \`.withInstructionPage(page)\`, \`.withDrawing(opts)\`, \`.geometryInfo()\`, \`.getMesh()\`, \`.numBodies()\`, \`.clone()\`.
+
+## Surface detail
+\`shape.surfaceDetail(face, { kind, depth | height, mode, spacing, size, angle, margin, text })\` adds knurl, grooves, ribs, dimples, bumps, hex pockets or text to a planar face, clipped to the face outline. The MCP tool \`add_surface_detail\` stores the same options in \`details.json\`, applied to the named object at build time.
 
 ## Placement
 \`.seatInto(target, { depth })\`, \`.seatOver(target, { gap })\`, \`.splitBySurface({ origin, normal })\`, \`.rotateAroundTo(axis, pivot, from, to)\`.
@@ -319,7 +322,7 @@ claude mcp add witness-cad -- npx tsx mcp/server.ts
 
 Projects live in \`~/.witness-cad/projects\` (override with WITNESS_HOME).
 
-Tools: read_docs, search_docs, list_projects, create_project, list_versions, create_draft, list_drafts, merge_draft, read_file, write_file, edit_file, save_version, build_model, build_variants, check_names, check_fit, check_assembly, check_joint_torque, check_strength, check_manufacturing, check_simready, simulate_model, check_hold, read_make_list, compare_versions, compare_to_reference, check_surfaces, paint_model, view_model, render_picture, render_video, read_version_picture, get_link, export_model, export_drawing, get_job.
+Tools: read_docs, search_docs, list_projects, create_project, list_versions, create_draft, list_drafts, merge_draft, read_file, write_file, edit_file, save_version, build_model, build_variants, check_names, check_fit, check_assembly, check_joint_torque, check_strength, check_manufacturing, check_simready, simulate_model, check_hold, read_make_list, compare_versions, compare_to_reference, check_surfaces, paint_model, add_surface_detail, view_model, render_picture, render_video, read_version_picture, get_link, export_model, export_drawing, get_job.
 
 \`paint_model\` writes \`paint.json\` (\`{ "object name": "#rrggbb", "*": "#…" }\`), which overrides colours set in code. \`compare_to_reference\` compares the model with a saved version or an STL/OBJ/3MF/STEP file in the project. \`create_draft\` can copy another draft with \`from_draft\`.
 

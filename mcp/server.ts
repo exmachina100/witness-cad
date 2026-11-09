@@ -438,6 +438,24 @@ export function createWitnessServer() {
       const base = (app_url ?? process.env.WITNESS_APP_URL ?? 'http://localhost:5173/').replace(/#.*$/, '');
       return json({ url: `${base}#/share/${code}`, bytes: code.length });
     });
+  tool('add_surface_detail', 'Add knurling, grooves, ribs, dimples, bumps, hex pockets or text to a planar face of a named object (stored in details.json and applied at build). Returns the build summary.',
+    { project, draft, object: z.string().describe('Object name as built, or "*"'), face: z.string().optional().describe('Face name, default top'),
+      kind: z.enum(['knurl', 'grooves', 'ribs', 'dimples', 'bumps', 'hex', 'text']), text: z.string().optional(), depth: z.number().optional(), height: z.number().optional(),
+      mode: z.enum(['emboss', 'deboss']).optional(), spacing: z.number().optional(), size: z.number().optional(), angle: z.number().optional(), margin: z.number().optional(), width: z.number().optional(),
+      replace: z.boolean().optional().describe('Drop earlier details on the same object and face') },
+    async ({ project, draft, replace, ...d }) => {
+      const prev = store.files(project, draft)['details.json'];
+      let list: any[] = [];
+      try { list = prev ? JSON.parse(prev) : []; } catch { list = []; }
+      const entry = { face: 'top', ...Object.fromEntries(Object.entries(d).filter(([k, v]) => v !== undefined && k !== 'project')) } as any;
+      if (replace) list = list.filter((x) => !(x.object === entry.object && (x.face ?? 'top') === entry.face));
+      list.push(entry);
+      store.write(project, 'details.json', JSON.stringify(list, null, 2) + '\n', draft);
+      const r = await build({ project, draft });
+      const warn = r.warnings.filter((w) => w.startsWith('surface detail'));
+      if (warn.length) throw new Error(warn.join('\n'));
+      return text(`added ${entry.kind} to ${entry.object}.${entry.face} (${list.length} detail(s) in details.json)\n\n${summarizeBuild(r)}`);
+    });
   tool('get_job', 'Get the status and output path of an export job.', { job: z.string() },
     ({ job }) => { const j = jobs.get(job); if (!j) throw new Error(`no job "${job}"`); return json(j); });
 

@@ -1,5 +1,6 @@
 // Runs a .forge.js project: evaluates files with the global API, resolves require(), and
 // turns the returned value into renderable scene objects.
+import { surfaceDetail } from './detail';
 import { buildGlobals } from './globals';
 import { ctxRef, RunContext, ParamDef, CheckResult, BomRow, DimRecord, LabelRecord, LogRecord } from './context';
 import { allocations, Shape } from './shape';
@@ -255,10 +256,23 @@ function solidObject(s: Shape, name: string, c: RunContext, extra: Partial<Scene
   };
 }
 
+/** details.json: [{ object, face, kind, ... }] surface details applied to named solids (written by add_surface_detail). */
+function applyDetails(s: Shape, name: string, c: RunContext): Shape {
+  const src = c.files['details.json'];
+  if (!src) return s;
+  let list: any[];
+  try { list = JSON.parse(src); } catch { c.warnings.push('details.json is not valid JSON; surface details were not applied'); return s; }
+  for (const d of Array.isArray(list) ? list : []) {
+    if (d.object !== name && d.object !== name.split('/').pop() && d.object !== '*') continue;
+    try { s = surfaceDetail(s, d.face ?? 'top', d); } catch (e: any) { c.warnings.push(`surface detail on ${name}.${d.face}: ${e.message}`); }
+  }
+  return s;
+}
+
 function collect(v: any, name: string, out: SceneObject[], asms: AssemblyInfo[], c: RunContext) {
   if (v == null) return;
   const nm = name || (v?.name as string) || 'Model';
-  if (v instanceof Shape) { if (!v.isEmpty()) out.push(solidObject(v, v.name ?? nm, c)); return; }
+  if (v instanceof Shape) { v = applyDetails(v, v.name ?? nm, c); if (!v.isEmpty()) out.push(solidObject(v, v.name ?? nm, c)); return; }
   if (v instanceof Sketch) { out.push({ id: `o${++objCounter}`, name: nm, kind: 'sketch', lines: sketchLines(v), color: v.color_, mock: c.mocks.has(v) }); return; }
   if (v instanceof ConstraintSketch) { collect(v.toSketch(), nm, out, asms, c); return; }
   if (v?.kind === 'sheetMetal' || v?.kind === 'surfaceBody' || v?.kind === 'surfaceSheet' || v?.kind === 'productSkin') { collect(v.toShape(), nm, out, asms, c); return; }

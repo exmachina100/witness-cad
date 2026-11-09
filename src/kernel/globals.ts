@@ -16,6 +16,7 @@ import * as lib from './lib';
 import { text2d, textWidth, loadFont } from './text';
 import { constrainedSketch } from './constraints';
 import { Import } from './importers';
+import './detail';
 import { Laser, SheetMetal, sheetMetal } from './fabrication';
 import { Surface, SurfaceBody, SurfaceSheet, Blend, Analysis, Thickness, Sculpt, Product, CarrierNS, SurfaceMembers } from './surfacing';
 import { mat4, v3 } from './math';
