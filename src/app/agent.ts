@@ -1,4 +1,5 @@
 // In-app Agent: a Claude tool-use loop that edits project files, builds, checks and looks at the model.
+import { getEngine } from './engine';
 import { DOCS_INDEX, readDoc, searchDocs } from '../docs';
 
 export interface AgentHost {
@@ -24,6 +25,7 @@ const TOOLS = [
   { name: 'view_model', description: 'Render the current viewport as an image so you can look at the model.', input_schema: { type: 'object', properties: {} } },
   { name: 'set_params', description: 'Set parameter values (by name) and rebuild.', input_schema: { type: 'object', properties: { values: { type: 'object' } }, required: ['values'] } },
   { name: 'export_model', description: 'Export the model. format: 3mf, stl, glb, obj, step, usd, urdf, mjcf, sdf, drawing, bom, package.', input_schema: { type: 'object', properties: { format: { type: 'string' } }, required: ['format'] } },
+  { name: 'check_strength', description: 'Finite element stress check on the built model. Runs a study declared with Fea.study.staticStress (by name, or the first one), or a quick study when fix_face/load_face/newtons are given. Returns von Mises stress, displacement and safety factor.', input_schema: { type: 'object', properties: { study: { type: 'string' }, part: { type: 'string' }, fix_face: { type: 'string' }, load_face: { type: 'string' }, newtons: { type: 'number' }, direction: { type: 'array', items: { type: 'number' } }, material: { type: 'string', description: 'Fea.materials key, e.g. aluminum6061T6' } } } },
   { name: 'save_version', description: 'Save the current files as a named version.', input_schema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
   { name: 'read_docs', description: 'Read a Witness CAD documentation page. Pages: ' + DOCS_INDEX.map((d) => d.id).join(', '), input_schema: { type: 'object', properties: { page: { type: 'string' } }, required: ['page'] } },
   { name: 'search_docs', description: 'Search the Witness CAD docs.', input_schema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
@@ -95,6 +97,11 @@ async function runTool(name: string, input: any, host: AgentHost): Promise<any> 
     case 'view_model': return { image: host.screenshot() };
     case 'set_params': host.setParams(input.values); return summarizeBuild(await host.build());
     case 'export_model': return host.exportModel(input.format);
+    case 'check_strength': {
+      const quick = input.fix_face || input.load_face || input.newtons != null ? { part: input.part, fix: input.fix_face ?? 'bottom', load: input.load_face ?? 'top', newtons: input.newtons ?? 100, direction: input.direction, material: input.material ?? 'isotropicPrintedPla' } : undefined;
+      const { display, ...r } = await getEngine().call('fea', { study: input.study, quick });
+      return JSON.stringify(r);
+    }
     case 'save_version': host.saveVersion(input.name); return `saved version "${input.name}"`;
     case 'read_docs': return readDoc(input.page) ?? `no page "${input.page}"`;
     case 'search_docs': return searchDocs(input.query).map((h) => `${h.page}: ${h.snippet}`).join('\n') || 'no matches';

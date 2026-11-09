@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { RunResult, SceneObject } from '../../kernel/runtime';
 
-export type InspectMode = 'shaded' | 'xray' | 'wireframe' | 'normals' | 'zebra' | 'mask' | 'colliders' | 'distance' | 'interference' | 'thickness' | 'process';
+export type InspectMode = 'shaded' | 'xray' | 'wireframe' | 'normals' | 'zebra' | 'mask' | 'colliders' | 'distance' | 'interference' | 'thickness' | 'process' | 'stress';
 export type ViewName = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom' | 'iso';
 
 export interface ViewportOptions {
@@ -17,6 +17,18 @@ export interface ViewportOptions {
   hidden: Set<string>;
   interference?: { a: string; b: string }[];
   dark: boolean;
+  /** Strength results drawn in 'stress' mode: world-space mesh with per-vertex von Mises (MPa) and displacement (mm). */
+  fea?: FeaDisplay | null;
+}
+
+export interface FeaDisplay { positions: Float32Array; indices: Uint32Array; vonMises: Float32Array; displacement: Float32Array; range: [number, number]; scale: number }
+
+/** Blue to red colour ramp used for stress plots (t in 0..1). */
+export function stressColor(t: number, out = new THREE.Color()): THREE.Color {
+  const x = Math.min(1, Math.max(0, t));
+  const stops: [number, number, number][] = [[0.13, 0.27, 0.86], [0.1, 0.72, 0.95], [0.2, 0.85, 0.35], [0.98, 0.85, 0.15], [0.93, 0.2, 0.13]];
+  const f = x * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(f)), u = f - i;
+  return out.setRGB(stops[i][0] + (stops[i + 1][0] - stops[i][0]) * u, stops[i][1] + (stops[i + 1][1] - stops[i][1]) * u, stops[i][2] + (stops[i + 1][2] - stops[i][2]) * u, THREE.SRGBColorSpace);
 }
 
 export interface Selection { name: string; object?: SceneObject; point: [number, number, number]; normal: [number, number, number] }
@@ -425,6 +437,31 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport({ re
       it.node.userData.explode = off;
     }
     if (o.mode !== 'distance') { s.measurePts = []; s.measureGroup?.clear(); }
+    // stress plot overlay
+    s.feaMesh?.removeFromParent();
+    s.feaMesh = null;
+    if (o.mode === 'stress' && o.fea) {
+      const d = o.fea;
+      const nv = d.positions.length / 3;
+      const pos = new Float32Array(nv * 3), col = new Float32Array(nv * 3);
+      const c = new THREE.Color();
+      const span = Math.max(1e-12, d.range[1] - d.range[0]);
+      for (let i = 0; i < nv; i++) {
+        for (let k = 0; k < 3; k++) pos[i * 3 + k] = d.positions[i * 3 + k] + d.displacement[i * 3 + k] * d.scale;
+        stressColor((d.vonMises[i] - d.range[0]) / span, c);
+        col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      geo.setIndex(new THREE.BufferAttribute(d.indices, 1));
+      const flat = geo.toNonIndexed();
+      flat.computeVertexNormals();
+      const fm = new THREE.Mesh(flat, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0, side: THREE.DoubleSide, clippingPlanes: planes }));
+      s.scene.add(fm);
+      s.feaMesh = fm;
+      for (const it of s.objects) if (it.obj.kind === 'solid') it.node.visible = false;
+    }
     applyTransforms();
   };
 

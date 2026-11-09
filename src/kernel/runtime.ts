@@ -44,6 +44,7 @@ export interface RunResult {
   cutPlanes: any[];
   explode: any;
   assemblies: AssemblyInfo[];
+  feaStudies?: FeaStudyInfo[];
   error?: { message: string; code?: string; line?: number; column?: number; file?: string; stack?: string };
   warnings: string[];
   timeMs: number;
@@ -64,7 +65,37 @@ export function normalizePath(p: string) {
 function dirname(p: string) { const i = p.lastIndexOf('/'); return i < 0 ? '' : p.slice(0, i); }
 
 let lastAllocations: Manifold[] = [];
-export const live: { assemblies: Map<string, Assembly>; result: RunResult | null; returned: any } = { assemblies: new Map(), result: null, returned: undefined };
+export const live: { assemblies: Map<string, Assembly>; result: RunResult | null; returned: any; feaStudies: any[] } = { assemblies: new Map(), result: null, returned: undefined, feaStudies: [] };
+
+export interface FeaStudyInfo { name: string; part?: string; material?: string; target?: number; fixtures: number; loads: number; assembly?: string }
+
+/** World-space solids of the last run keyed by object/part name, plus per-part FEA materials, for running studies. */
+export function studyTargets(returned: any = live.returned) {
+  const solids = new Map<string, Shape>();
+  const partMaterials = new Map<string, any>();
+  const add = (n: string, s: Shape) => { if (s.isEmpty()) return; let k = n, i = 2; while (solids.has(k)) k = `${n} ${i++}`; solids.set(k, s); };
+  const walk = (v: any, name: string) => {
+    if (v == null) return;
+    if (v instanceof Shape) { add(v.name ?? (name || 'Model'), v); return; }
+    if (v instanceof ShapeGroup) { for (const ch of v.children) walk(ch.item, name ? `${name}/${ch.name}` : ch.name); return; }
+    if (v instanceof Assembly || v instanceof SolvedAssembly) {
+      const asm = v instanceof SolvedAssembly ? v.assembly : v;
+      const solved = v instanceof SolvedAssembly ? v : asm.solve();
+      for (const p of asm.parts) {
+        const w = solved.getPart(p.name);
+        if (p.fea?.material) partMaterials.set(p.name, p.fea.material);
+        if (w instanceof Shape) add(p.name, w);
+        else if (w instanceof ShapeGroup) add(p.name, w.shapes().length === 1 ? w.shapes()[0] : (w as any).toShape?.() ?? w.shapes()[0]);
+      }
+      return;
+    }
+    if (v instanceof Sketch || v instanceof ConstraintSketch || v instanceof Curve3D) return;
+    if (Array.isArray(v)) { v.forEach((x, i) => walk(x, name ? `${name}/${i + 1}` : (x?.name ?? `Item ${i + 1}`))); return; }
+    if (typeof v === 'object' && v.kind !== 'staticStress') for (const [k, x] of Object.entries(v)) if (typeof x !== 'function') walk(x, name ? `${name}/${k}` : k);
+  };
+  walk(returned, '');
+  return { solids, partMaterials };
+}
 
 /** External project resolver for require("project:alias"). */
 export const projectResolver: { fn: ((alias: string) => Project | null) | null } = { fn: null };
@@ -144,6 +175,7 @@ export function runProject(project: Project, paramValues: Record<string, any> = 
   const objects: SceneObject[] = [];
   const assemblies: AssemblyInfo[] = [];
   live.assemblies.clear();
+  live.feaStudies = [...c.feaStudies];
   if (!error) {
     try {
       collect(returned, '', objects, assemblies, c);
@@ -154,12 +186,16 @@ export function runProject(project: Project, paramValues: Record<string, any> = 
   const result: RunResult = {
     ok: !error,
     objects, params: c.params, checks: c.checks, bom: c.bom, dims: c.dims, labels: c.labels, logs: c.logs, scene: c.scene,
-    cutPlanes: c.cutPlanes, explode: c.explode, assemblies, error, warnings: [...c.warnings], timeMs: (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0,
+    cutPlanes: c.cutPlanes, explode: c.explode, assemblies, error, feaStudies: live.feaStudies.map(feaInfo), warnings: [...c.warnings], timeMs: (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0,
   };
   live.result = result;
   live.returned = returned;
   allocations.list = null;
   return result;
+}
+
+function feaInfo(s: any): FeaStudyInfo {
+  return { name: s.name, part: s.part, material: s.material?.name, target: s.target?.value, fixtures: s.fixtures?.length ?? 0, loads: s.loads?.length ?? 0, assembly: s.assembly };
 }
 
 function wrapImported(v: any) {
@@ -232,6 +268,7 @@ function collect(v: any, name: string, out: SceneObject[], asms: AssemblyInfo[],
     const solved = v instanceof SolvedAssembly ? v : asm.solve();
     const asmName = name || asm.name;
     live.assemblies.set(asmName, asm);
+    for (const st of asm.feaStudies) if (!live.feaStudies.some((x) => x.name === st.name)) live.feaStudies.push({ ...st, assembly: asmName });
     for (const p of asm.parts) {
       const T = solved.getTransform(p.name);
       const shapes: { n: string; s: Shape }[] = p.shape instanceof Shape ? [{ n: p.name, s: p.shape }] : p.shape.shapes().map((s, i) => ({ n: `${p.name}/${p.shape instanceof ShapeGroup ? p.shape.children[i]?.name ?? i : i}`, s }));
@@ -250,6 +287,7 @@ function collect(v: any, name: string, out: SceneObject[], asms: AssemblyInfo[],
   }
   if (Array.isArray(v)) { v.forEach((x, i) => collect(x, name ? `${name}/${i + 1}` : (x?.name ?? `Item ${i + 1}`), out, asms, c)); return; }
   if (typeof v === 'object') {
+    if (v.kind === 'staticStress' || v.kind === 'feaMaterial') return;
     for (const [k, x] of Object.entries(v)) {
       if (typeof x === 'function') continue;
       collect(x, name ? `${name}/${k}` : k, out, asms, c);

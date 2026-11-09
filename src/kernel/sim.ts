@@ -1,4 +1,4 @@
-// Physical materials, Sim.* (simulation metadata + a joint-space preview integrator), Fea.* (estimated static stress).
+// Physical materials, Sim.* (simulation metadata + a joint-space preview integrator), Fea.* re-exported from feaStudy.ts.
 import { ForgeError } from './errors';
 import { Shape } from './shape';
 import { v3, Vec3 } from './math';
@@ -162,51 +162,5 @@ export function simulate(asm: Assembly, o: { duration?: number; dt?: number; tar
   return { frames, final: { ...q } };
 }
 
-// ---------------------------------------------------------------- Fea (estimate)
-export const Fea = {
-  material: (name: string, o: any) => ({ kind: 'feaMaterial', name, ...o }),
-  materials: {
-    isotropicPrintedPla: () => Fea.material('PLA (isotropic)', { densityKgM3: 1240, youngsModulusMPa: 3500, poissonRatio: 0.36, yieldStrengthMPa: 50 }),
-    printedPla: (o: any = {}) => Fea.material('PLA (printed)', { densityKgM3: 1240, youngsModulusMPa: 3500 * ((o.infillPercent ?? 100) / 100) ** 0.7, poissonRatio: 0.36, yieldStrengthMPa: 50 * ((o.infillPercent ?? 100) / 100) * 0.8, ...o }),
-    aluminum6061T6: () => Fea.material('Aluminum 6061-T6', { densityKgM3: 2700, youngsModulusMPa: 68900, poissonRatio: 0.33, yieldStrengthMPa: 276 }),
-    astmA36StructuralSteel: () => Fea.material('ASTM A36', { densityKgM3: 7850, youngsModulusMPa: 200000, poissonRatio: 0.26, yieldStrengthMPa: 250 }),
-  },
-  body: (o: any) => ({ kind: 'feaBody', ...o }),
-  region: {
-    face: (part: string, face: string) => ({ kind: 'face', part, face }),
-    plane: (part: string, face: string, o: any) => ({ kind: 'plane', part, face, ...o }),
-  },
-  fix: { fixed: (region: any) => ({ kind: 'fixed', region }) },
-  load: { force: (region: any, o: { newtons: number; direction: Vec3 }) => ({ kind: 'force', region, ...o }) },
-  target: { minSafetyFactor: (v: number) => ({ kind: 'minSafetyFactor', value: v }) },
-  render: { targets: (...t: any[]) => ({ kind: 'render', targets: t }) },
-  mesh: { quadraticTets: (o: any) => ({ kind: 'quadraticTets', ...o }) },
-  study: { staticStress: (name: string, o: any) => ({ kind: 'staticStress', name, ...o }) },
-};
-
-/** Estimate: nominal stress = total force / smallest cross-section between fixture and load. */
-export function estimateStaticStress(shape: Shape, study: any, material: any) {
-  const loads = study.loads ?? [];
-  const total = loads.reduce((s: number, l: any) => s + Math.abs(l.newtons ?? 0), 0);
-  const dir = v3.norm(loads[0]?.direction ?? [0, 0, -1]);
-  // slice perpendicular to the dominant axis of the part to find the weakest section
-  const bb = shape.boundingBox();
-  const axis = bb.size.indexOf(Math.max(...bb.size));
-  const rot = axis === 2 ? null : axis === 0 ? [0, 90, 0] : [-90, 0, 0];
-  const s = rot ? shape.rotate(rot as Vec3) : shape;
-  const b2 = s.boundingBox();
-  let minArea = Infinity;
-  for (let i = 1; i < 20; i++) {
-    const z = b2.min[2] + ((b2.max[2] - b2.min[2]) * i) / 20;
-    const a = s.m.slice(z).area();
-    if (a > 0) minArea = Math.min(minArea, a);
-  }
-  // bending contribution: treat as cantilever of length L with rectangular section
-  const L = Math.max(...bb.size);
-  const sideways = Math.abs(dir[axis]) < 0.7;
-  const c = Math.sqrt(minArea) / 2;
-  const Iz = Math.pow(Math.sqrt(minArea), 4) / 12;
-  const stress = sideways ? (total * L * c) / Iz : total / minArea;
-  const sf = (material?.yieldStrengthMPa ?? 50) / Math.max(1e-9, stress);
-  return { estimate: true, maxStressMPa: stress, safetyFactor: sf, minSectionMm2: minArea, method: sideways ? 'cantilever bending' : 'axial', pass: study.target ? sf >= study.target.value : undefined };
-}
+// Fea.* lives in feaStudy.ts (real finite element solve in fea.ts).
+export { Fea } from './feaStudy';
