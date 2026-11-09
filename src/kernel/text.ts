@@ -1,5 +1,5 @@
 // text2d(): outlines from an OpenType font, flattened into a Sketch.
-import opentype from 'opentype.js';
+import * as opentype from 'opentype.js';
 import { K } from './wasm';
 import { Sketch } from './sketch';
 import { ForgeError } from './errors';
