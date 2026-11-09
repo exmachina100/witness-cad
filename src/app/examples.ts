@@ -205,4 +205,34 @@ return group({ name: "Shelf", shape: board }, { name: "Bracket L", shape: left }
 `,
     },
   },
+  {
+    id: 'shelf-bracket-fea', name: 'Shelf bracket strength', tags: ['fea', 'strength', 'params'],
+    description: 'An L bracket with a gusset and a declared finite element study: wall face fixed, shelf loaded. Run it from Inspect, Strength.',
+    files: {
+      'main.forge.js': `// Shelf bracket with a static stress study
+const load = Param.number("Shelf load", 300, { min: 20, max: 2000, unit: "N" });
+const t = Param.number("Thickness", 5, { min: 2, max: 12, unit: "mm" });
+const gusset = Param.bool("Gusset", true);
+const width = 30, arm = 80, height = 70;
+
+let part = box(arm, width, t).translate(arm / 2, 0, 0)
+  .add(box(t, width, height).translate(t / 2, 0, 0));
+if (gusset) {
+  const tri = polygon([[0, 0], [arm * 0.6, 0], [0, height * 0.6]]).extrude(t).rotate([90, 0, 0]).translate(0, t / 2, 0);
+  part = part.add(tri.translate(t, 0, t));
+}
+part = part.color("#7d93b2");
+
+Fea.study.staticStress("Shelf load", {
+  part: "bracket",
+  material: Fea.materials.aluminum6061T6(),
+  fixtures: [Fea.fix.fixed(Fea.region.side("xmin"))],
+  loads: [Fea.load.force(Fea.region.box([arm * 0.6, -width, t - 0.5], [arm + 1, width, t + 0.5]), { newtons: load, direction: [0, 0, -1] })],
+  target: Fea.target.minSafetyFactor(2),
+});
+
+return { bracket: part };
+`,
+    },
+  },
 ];

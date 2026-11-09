@@ -25,7 +25,7 @@ Everything runs locally. Projects, versions, drafts and artifacts are kept in th
 
 - **Home**: projects, inbox (open drafts), shared, favorites, examples, trash; grid or list, search, sort; light, dark or system theme.
 - **Workspace top bar**: project name, version and draft picker, file search (⌘P), auto-build, rebuild (⌘↵), Run tests, screenshot, turntable video, Export, Share, help.
-- **Left rail**: Files (tree, root file, folders, import alias), Agent (Claude tool-use loop with your API key), Params (sliders, choices, joints, poses), 2D views (live slices and projections, SVG/DXF), Make (parts by process, BOM, drawings, manufacturing package), Artifacts (renders, videos, exports, uploads), Inspect (view presets, 11 inspect modes, section plane, objects, timeline, explode, animations, simulation, interference, joint torque, strength estimate).
+- **Left rail**: Files (tree, root file, folders, import alias), Agent (Claude tool-use loop with your API key), Params (sliders, choices, joints, poses), 2D views (live slices and projections, SVG/DXF), Make (parts by process, BOM, drawings, manufacturing package), Artifacts (renders, videos, exports, uploads), Inspect (view presets, 11 inspect modes, section plane, objects, timeline, explode, animations, simulation, interference, joint torque) and a Strength tab (finite element studies with a von Mises stress plot and deformed shape).
 - **Viewport**: orbit/pan/zoom, 3D or flat, view presets, edges, measure, section, selection card with size/volume/area, joint sliders.
 - **Editor**: Monaco with API completions and inline build errors, tabs, console.
 
@@ -37,7 +37,7 @@ Globals, no imports. Units are millimetres and degrees, Z is up, and `box()` is 
 - Sketches: `rect`, `circle2d`, `roundedRect`, `polygon`, `ngon`, `slot`, `path()` builder, `constrainedSketch()` with a solver, `text2d`, offsets, extrude/revolve/loft/sweep.
 - Curves: lines, arcs, NURBS, splines, helices, 3D routes and tubes.
 - Assemblies: connectors, `assembly().addPart().connect()` with fixed, revolute, prismatic and other joints, coupled joints, poses, animations, springs, cables, collision and torque checks.
-- Simulation and analysis: physical materials, mass properties, rigid-body dynamics (gravity, convex-hull contacts with friction and restitution, ground plane, joints as constraints with limits, servo/velocity/spring drives, free bases and closed loops), drop and hold tests, a joint-space preview, hand-calculation strength estimates.
+- Simulation and analysis: physical materials, mass properties, rigid-body dynamics (gravity, convex-hull contacts with friction and restitution, ground plane, joints as constraints with limits, servo/velocity/spring drives, free bases and closed loops), drop and hold tests, a joint-space preview, and linear static finite element analysis (`Fea.study.staticStress`: fixtures, force/pressure/torque/gravity loads, von Mises stress, displacement, safety factor). `npm run cli -- strength <project>` runs it from the command line.
 - Output: `verify.*` checks, `bom()`, `dim()`, labels, cut planes, exploded views.
 - Library: fasteners, gears (spur, ring, rack, bevel, face, planetary), pipes, T-slot extrusions, belt drives, wood joints, laser-cut parts.
 
@@ -71,7 +71,7 @@ npm run cli -- sim path/to/project --hold open=-0.3 --max-travel 3    # hold tes
 
 ## Limits
 
-The kernel is mesh-based (Manifold). STEP export rebuilds exact surfaces for planes, cylinders, cones, spheres and tori (boxes, cylinders, spheres, holes, extrusions and revolves of sketches, and booleans of these), with exact lines and circles and fitted B-spline edges where two curved surfaces cross. Surfaces from other operations (fillets via Minkowski sums, sweeps, lofts, hulls, non-uniform scaling, text curves) are written as flat facets inside the same B-rep. Strength checks are hand-calculation estimates, not a finite-element solve, and the rigid-body simulator uses convex-hull colliders (concave parts collide as their hull unless split with `Sim.collider.pieces()`), so treat it as a design check and use the MJCF export with MuJoCo for high-fidelity contact work.
+The kernel is mesh-based (Manifold). STEP export rebuilds exact surfaces for planes, cylinders, cones, spheres and tori (boxes, cylinders, spheres, holes, extrusions and revolves of sketches, and booleans of these), with exact lines and circles and fitted B-spline edges where two curved surfaces cross. Surfaces from other operations (fillets via Minkowski sums, sweeps, lofts, hulls, non-uniform scaling, text curves) are written as flat facets inside the same B-rep. Strength studies are a real linear static FEA on a voxel hexahedral mesh, so curved and sloped faces are approximated by steps of one element (refine with `Fea.mesh.hex({ size })`); there is no contact, plasticity or buckling. The rigid-body simulator uses convex-hull colliders (concave parts collide as their hull unless split with `Sim.collider.pieces()`), so treat it as a design check and use the MJCF export with MuJoCo for high-fidelity contact work.
 
 ## Layout
 

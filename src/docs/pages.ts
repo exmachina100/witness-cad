@@ -159,8 +159,30 @@ It is a sequential-impulse solver with convex colliders, meant for design checks
 ## Sim.*
 \`Sim.material\`, \`Sim.body\`, \`Sim.collider.capsule/hull/convexHull/convexDecomposition/boundingBox/visualMesh/sdfMesh/none\`, \`Sim.motion.dynamic/kinematic/static\`, \`Sim.drive.passive/velocity/servo/torsionSpring/linearSpring\`, \`Sim.contact.wheelSurface/gripperSurface\`, \`Sim.profile.robotBodyRunnable/robotBodyIsaac\`, \`Sim.controller.diffDrive\`.
 
-## Fea.*
-\`Fea.study.staticStress(name, { fixtures, loads, target, mesh })\` with \`Fea.materials.*\`, \`Fea.fix.fixed\`, \`Fea.load.force\`, \`Fea.target.minSafetyFactor\`. The local check gives a section-based estimate and labels it as one.
+## Fea.* (strength)
+Linear static finite element analysis. The part is meshed with box-shaped hexahedral elements (8-node bricks with incompatible modes, which bend accurately even with a few elements through the thickness) and solved with preconditioned conjugate gradients, locally in the browser, CLI or MCP server. Units are mm, N and MPa.
+
+\`\`\`js
+const shelf = box(60, 20, 4).add(box(4, 20, 40).translate(-28, 0, 4));
+Fea.study.staticStress("Shelf load", {
+  part: "bracket",                                  // omit to analyse the whole model
+  material: Fea.materials.aluminum6061T6(),
+  fixtures: [Fea.fix.fixed(Fea.region.side("xmin"))],
+  loads: [Fea.load.force(Fea.region.face("bracket", "top"), { newtons: 200, direction: [0, 0, -1] })],
+  target: Fea.target.minSafetyFactor(2),
+  mesh: Fea.mesh.hex({ size: 1.5 }),               // or { targetElements: 20000 }
+});
+return { bracket: shelf };
+\`\`\`
+
+- **Regions**: \`Fea.region.face(part, face)\` (labels or top/bottom/left/right/front/back; \`face(name)\` alone for one-part models), \`Fea.region.plane(part, face, { offset })\`, \`Fea.region.side("xmin" | "xmax" | "ymin" | "ymax" | "zmin" | "zmax")\`, \`Fea.region.box(min, max)\`, \`Fea.region.sphere(center, radius)\`. Cylindrical face labels select the curved wall.
+- **Fixtures**: \`Fea.fix.fixed(region)\`, \`Fea.fix.roller(region)\` (held along the face normal only), \`Fea.fix.dofs(region, ["x", "z"])\`.
+- **Loads**: \`Fea.load.force(region, { newtons, direction })\` (spread by area), \`Fea.load.pressure(region, { mpa | kpa })\`, \`Fea.load.torque(region, { nm | nmm, axis, origin? })\`, \`Fea.load.gravity({ g? })\` (uses the material density).
+- **Materials**: \`Fea.materials.isotropicPrintedPla/printedPla({ infillPercent })/petg/abs/nylon/aluminum6061T6/astmA36StructuralSteel/stainless304/titanium6Al4V/plywood\`, or \`Fea.material(name, { youngsModulusMPa, poissonRatio, yieldStrengthMPa, densityKgM3 })\`. Parts can carry one with \`addPart(name, shape, { fea: { material } })\`; assemblies also take \`withFeaStudy(study)\`.
+- **Results**: \`maxVonMisesMPa\`, \`p99VonMisesMPa\` (steadier than the peak, which can be singular at sharp inside corners and fixture edges), \`maxDisplacementMm\`, \`safetyFactor\` (yield / max von Mises), \`pass\` against the target, applied load and reaction forces, element count, iterations and warnings.
+- \`Fea.solve(shape, study)\` runs a study inside the script, so you can write \`verify.that("strong", Fea.solve(part, study).safetyFactor > 2)\`. Keep the mesh coarse there; it runs on every build.
+
+Inspect → **Strength** lists the declared studies, runs a quick study (fixed face, loaded face, force, material) and colours the part by von Mises stress with an exaggerated deformed shape. Use **Fine** for final numbers. The MCP tool \`check_strength\` and the CLI command \`witness strength\` run the same solver.
 
 ## Exports
 URDF, MJCF (MuJoCo) and SDF export the assembly's link tree with meshes, masses, inertias, limits and drives.` },
@@ -216,6 +238,8 @@ Recommended loop: read the docs, pick or create a project, create a draft from a
 \`\`\`bash
 npm run cli -- build path/to/project            # build and print a summary
 npm run cli -- export path/to/project --format 3mf --out model.3mf
+npm run cli -- strength path/to/project          # run the first Fea study (or --study name); exit 1 below target
+npm run cli -- strength part.forge.js --fix bottom --load top --newtons 500 --material aluminum6061T6
 npm run cli -- check path/to/project            # exit code 1 when a verify check fails
 npm run cli -- sim path/to/project --seconds 2   # rigid-body dynamics summary
 npm run cli -- sim path/to/project --hold lid=0.3 --max-travel 3   # hold test, exit 1 if it gives
