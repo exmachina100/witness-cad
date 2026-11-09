@@ -45,7 +45,7 @@ Full reference: open **Docs** in the app.
 
 ## Export formats
 
-3MF, STL (binary and ASCII), GLB, OBJ, PLY, STEP (faceted B-rep), USD, URDF, MJCF (MuJoCo), SDF (Gazebo), part drawing SVG, BOM CSV and a manufacturing package zip.
+3MF, STL (binary and ASCII), GLB, OBJ, PLY, STEP (exact B-rep), USD, URDF, MJCF (MuJoCo), SDF (Gazebo), part drawing SVG, BOM CSV and a manufacturing package zip.
 
 ## MCP server
 
@@ -69,7 +69,7 @@ npm run cli -- params path/to/project
 
 ## Limits
 
-The kernel is mesh-based (Manifold). STEP export is a faceted B-rep, not exact NURBS surfaces. Strength checks are hand-calculation estimates, not a finite-element solve, and simulation integrates joint-space dynamics rather than full contact physics.
+The kernel is mesh-based (Manifold). STEP export rebuilds exact surfaces for planes, cylinders, cones, spheres and tori (boxes, cylinders, spheres, holes, extrusions and revolves of sketches, and booleans of these), with exact lines and circles and fitted B-spline edges where two curved surfaces cross. Surfaces from other operations (fillets via Minkowski sums, sweeps, lofts, hulls, non-uniform scaling, text curves) are written as flat facets inside the same B-rep. Strength checks are hand-calculation estimates, not a finite-element solve, and simulation integrates joint-space dynamics rather than full contact physics.
 
 ## Layout
 

@@ -147,7 +147,7 @@ URDF, MJCF (MuJoCo) and SDF export the assembly's link tree with meshes, masses,
 - \`sketchToSvg(sketch, { stroke, strokeWidth, fill, padding })\`, \`sketchToDxf(sketch, { layer, colorIndex })\`
 
 ## Export formats
-Mesh: 3MF (recommended), STL, GLB, OBJ, PLY. CAD: STEP (faceted B-rep AP214). Simulation: USD, URDF, MJCF, SDF. Documents: part drawing (SVG), BOM (CSV), manufacturing package (zip with 3MF, STEP, per-part STL, drawing, BOM and check report).` },
+Mesh: 3MF (recommended), STL, GLB, OBJ, PLY. CAD: STEP (AP214 exact B-rep: planes, cylinders, cones, spheres and tori come out as true surfaces, with lines, circles and B-spline edges; anything the kernel cannot trace back to an exact surface is written as flat facets). Simulation: USD, URDF, MJCF, SDF. Documents: part drawing (SVG), BOM (CSV), manufacturing package (zip with 3MF, STEP, per-part STL, drawing, BOM and check report).` },
   { id: 'viewport', title: 'Viewport and scene', body: `# Viewport and scene
 
 - \`scene({ background, camera: { position, target, fov }, lights: [{ type, color, intensity, position }], fog, environment, ground, capture })\` — setting lights replaces the defaults; setting camera.position turns off auto-framing.

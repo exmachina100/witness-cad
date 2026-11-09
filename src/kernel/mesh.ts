@@ -1,10 +1,12 @@
 // Mesh extraction and analysis helpers shared by topology queries, exports and checks.
 import type { Manifold } from 'manifold-3d';
 import { v3, Vec3 } from './math';
+import type { MeshRuns } from './surfaces';
 
 export interface TriMesh {
   positions: Float32Array; // xyz per vertex
   indices: Uint32Array; // 3 per triangle
+  runs?: MeshRuns; // triangle runs traced back to the primitives they came from (for exact export)
 }
 
 export function toTriMesh(m: Manifold): TriMesh {
@@ -17,7 +19,10 @@ export function toTriMesh(m: Manifold): TriMesh {
     positions[i * 3 + 1] = mesh.vertProperties[i * np + 1];
     positions[i * 3 + 2] = mesh.vertProperties[i * np + 2];
   }
-  return { positions, indices: new Uint32Array(mesh.triVerts) };
+  const runs: MeshRuns | undefined = mesh.runIndex && mesh.runOriginalID
+    ? { index: new Uint32Array(mesh.runIndex), ids: new Uint32Array(mesh.runOriginalID), xf: new Float32Array(mesh.runTransform) }
+    : undefined;
+  return { positions, indices: new Uint32Array(mesh.triVerts), runs };
 }
 
 export function vert(m: TriMesh, i: number): Vec3 {
