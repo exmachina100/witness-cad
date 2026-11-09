@@ -1,7 +1,8 @@
 // Witness CAD command line: build, check, export, render and inspect params of a project folder or .forge.js file.
 import { existsSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
-import { initNode } from '../src/kernel/node';
+import { initNode, ensureStepReaderNode } from '../src/kernel/node';
+import { projectNeedsStep } from '../src/kernel/importers';
 import { runProject, projectResolver, RunResult } from '../src/kernel/runtime';
 import { exportModel, EXPORT_FORMATS } from '../src/export';
 import { renderPng, RenderView } from '../src/render/raster';
@@ -64,6 +65,7 @@ async function main() {
   await initNode();
   projectResolver.fn = (alias) => store.byAlias(alias);
   const proj = load(target, o.entry);
+  if (projectNeedsStep(proj.files)) await ensureStepReaderNode();
   const r: RunResult = runProject({ files: proj.files, entry: proj.entry }, set);
   switch (cmd) {
     case 'build': console.log(summarizeBuild(r)); process.exit(r.ok ? 0 : 1);

@@ -35,7 +35,8 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "three": "^0.170.0",
-    "zod": "^4.6.7"
+    "zod": "^4.6.7",
+    "occt-import-js": "^0.0.23"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
@@ -44,7 +45,6 @@
     "@types/react-dom": "^18.3.7",
     "@types/three": "^0.170.0",
     "@vitejs/plugin-react": "^4.7.0",
-    "occt-import-js": "^0.0.23",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vite": "^5.4.21",

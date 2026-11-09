@@ -8,7 +8,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 import { store, readMeta } from './store';
-import { initNode } from '../src/kernel/node';
+import { initNode, ensureStepReaderNode } from '../src/kernel/node';
+import { projectNeedsStep } from '../src/kernel/importers';
 import { runProject, projectResolver, live, solveLive, RunResult } from '../src/kernel/runtime';
 import { exportModel, EXPORT_FORMATS } from '../src/export';
 import { worldMeshes, ExportMesh } from '../src/export/mesh';
@@ -31,6 +32,7 @@ function filesOf(r: Ref) { return r.version ? store.versionFiles(r.project, r.ve
 async function build(r: Ref, params?: Record<string, any>): Promise<RunResult> {
   await initNode();
   const m = readMeta(r.project);
+  if (projectNeedsStep(filesOf(r))) await ensureStepReaderNode();
   return runProject({ files: filesOf(r), entry: m.entry }, { ...(m.params ?? {}), ...(params ?? {}) });
 }
 function transformsFor(result: RunResult, values?: Record<string, Record<string, any>>) {

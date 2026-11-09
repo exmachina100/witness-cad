@@ -210,8 +210,89 @@ export class ConstrainedSketchBuilder {
   }
   ccw() { return this; }
   blockRotation() { return this; }
-  shapeWidth(_s: any, _v: number) { return this; }
-  shapeHeight(_s: any, _v: number) { return this; }
+  shapeWidth(s: any, value: number) { const P = this.shapePts(s); return this.addC('shapeWidth', [s], (v) => { const xs = P.map((p) => v(this.xi(p))); return [Math.max(...xs) - Math.min(...xs) - value]; }, value); }
+  shapeHeight(s: any, value: number) { const P = this.shapePts(s); return this.addC('shapeHeight', [s], (v) => { const ys = P.map((p) => v(this.yi(p))); return [Math.max(...ys) - Math.min(...ys) - value]; }, value); }
+  shapeArea(s: any, value: number) { const P = this.shapePts(s); return this.addC('shapeArea', [s], (v) => [Math.abs(this.polyArea(v, P)) - value], value); }
+  shapeCentroidX(s: any, value: number) { const P = this.shapePts(s); return this.addC('shapeCentroidX', [s], (v) => [this.polyCentroid(v, P)[0] - value], value); }
+  shapeCentroidY(s: any, value: number) { const P = this.shapePts(s); return this.addC('shapeCentroidY', [s], (v) => [this.polyCentroid(v, P)[1] - value], value); }
+  shapeEqualCentroid(a: any, b: any) {
+    const A = this.shapePts(a), B = this.shapePts(b);
+    return this.addC('shapeEqualCentroid', [a, b], (v) => { const ca = this.polyCentroid(v, A), cb = this.polyCentroid(v, B); return [ca[0] - cb[0], ca[1] - cb[1]]; });
+  }
+
+  // ---------------- extra entities
+  pointAt(x: number, y: number, fixed = false) { return this.point(x, y, fixed); }
+  lineAt(x1: number, y1: number, x2: number, y2: number, construction = false) { return this.line(this.point(x1, y1), this.point(x2, y2), construction); }
+  /** A closed polygon from points ([x, y] or point handles); also added as a profile loop. */
+  shape(points: any[], o: { construction?: boolean; name?: string } = {}) {
+    const ids = points.map((p) => this.pidOrNew(p));
+    const lines = ids.map((id, i) => this.line(id, ids[(i + 1) % ids.length], o.construction));
+    if (!o.construction) this.loops.push({ items: lines.map((l) => ({ kind: 'line' as const, id: l.id })), points: ids });
+    return { kind: 'shape' as const, id: this.nextId++, points: ids, lines, name: o.name };
+  }
+  /** Rectangle as a shape handle (width/height/centroid constraints apply to it). */
+  groupRect(o: { x?: number; y?: number; width?: number; height?: number } = {}) {
+    const x = o.x ?? 0, y = o.y ?? 0, w = o.width ?? 10, h = o.height ?? 10;
+    const sh = this.shape([[x - w / 2, y - h / 2], [x + w / 2, y - h / 2], [x + w / 2, y + h / 2], [x - w / 2, y + h / 2]]);
+    this.horizontal(sh.lines[0]); this.horizontal(sh.lines[2]); this.vertical(sh.lines[1]); this.vertical(sh.lines[3]);
+    if (o.width != null) this.length(sh.lines[0], w);
+    if (o.height != null) this.length(sh.lines[1], h);
+    return sh;
+  }
+  /** Group entities so they can be referenced together; returns a shape-like handle over their points. */
+  group(...items: any[]) {
+    const pts: PointId[] = [];
+    for (const it of items.flat()) {
+      if (it?.kind === 'shape') pts.push(...it.points);
+      else if (it?.kind === 'line') pts.push(it.a, it.b);
+      else if (it?.kind === 'point' || typeof it === 'number') pts.push(this.pid(it));
+    }
+    return { kind: 'shape' as const, id: this.nextId++, points: [...new Set(pts)], lines: items.flat().filter((i: any) => i?.kind === 'line') };
+  }
+  /** Polyline through points: route([[0,0],[10,0],[10,5]], { close: true }). */
+  route(points: Vec2[], o: { close?: boolean } = {}) {
+    this.moveTo(points[0][0], points[0][1]);
+    for (const p of points.slice(1)) this.lineTo(p[0], p[1]);
+    return o.close ? this.close() : this;
+  }
+  lastArc() { const a = [...this.entities].reverse().find((e) => e.kind === 'arc'); if (!a) throw new ForgeError('CSKETCH.NO_ARC', 'no arc yet'); return a as ArcE; }
+  /** Arc length of an arc (default: the last arc drawn). */
+  arcLength(arcOrValue: any, value?: number) {
+    const A = value == null ? this.lastArc() : this.arcE(arcOrValue);
+    const L = value ?? arcOrValue;
+    return this.addC('arcLength', [A], (v) => [this.arcSweep(v, A) * this.dist(v, A.c, A.a) - L], L);
+  }
+  /** Line meets arc tangentially at their shared endpoint. */
+  lineTangentArc(l: any, arc?: any) {
+    const L = this.lineE(l), A = arc == null ? this.lastArc() : this.arcE(arc);
+    const p = [A.a, A.b].find((q) => q === L.a || q === L.b) ?? A.a;
+    return this.addC('lineTangentArc', [L, A], (v) => { const [dx, dy] = this.dir(v, L); const rx = v(this.xi(p)) - v(this.xi(A.c)), ry = v(this.yi(p)) - v(this.yi(A.c)); return [(dx * rx + dy * ry) / ((Math.hypot(dx, dy) * Math.hypot(rx, ry)) || 1)]; });
+  }
+  /** Two arcs meet tangentially at their shared endpoint (centres and joint collinear). */
+  arcTangentArc(a: any, b: any) {
+    const A = this.arcE(a), B = this.arcE(b);
+    const p = [A.a, A.b].find((q) => q === B.a || q === B.b) ?? A.b;
+    return this.addC('arcTangentArc', [A, B], (v) => {
+      const ax = v(this.xi(p)) - v(this.xi(A.c)), ay = v(this.yi(p)) - v(this.yi(A.c)), bx = v(this.xi(p)) - v(this.xi(B.c)), by = v(this.yi(p)) - v(this.yi(B.c));
+      return [(ax * by - ay * bx) / ((Math.hypot(ax, ay) * Math.hypot(bx, by)) || 1)];
+    });
+  }
+  bezierTangentArc(l: any, arc?: any) { return this.lineTangentArc(l, arc); }
+  /** Tangent continuity between two consecutive entities (line/arc in any combination). */
+  smoothBlend(a: any, b: any) {
+    const ea = this.ent(typeof a === 'object' ? a.id : a), eb = this.ent(typeof b === 'object' ? b.id : b);
+    if (ea.kind === 'arc' && eb.kind === 'arc') return this.arcTangentArc(ea, eb);
+    if (ea.kind === 'line' && eb.kind === 'arc') return this.lineTangentArc(ea, eb);
+    if (ea.kind === 'arc' && eb.kind === 'line') return this.lineTangentArc(eb, ea);
+    return this.parallel(ea, eb);
+  }
+  /** Copy a point from another solved sketch as a fixed reference. */
+  referenceFrom(sketch: any, pointId: number | { id: number }) {
+    const p = sketch.point(pointId);
+    return this.point(p.x, p.y, true);
+  }
+  /** Copy every point of another solved sketch as fixed references (returned in order). */
+  referenceAllFrom(sketch: any) { return (sketch.pointIds?.() ?? []).map((id: number) => this.referenceFrom(sketch, id)); }
 
   // ---------------- solve
   solve(o: { maxIterations?: number; tolerance?: number } = {}): ConstraintSketch {
@@ -287,6 +368,24 @@ export class ConstrainedSketchBuilder {
   private pid(p: any): PointId { if (typeof p === 'number') return p; if (p?.kind === 'point') return p.id; throw new ForgeError('CSKETCH.NOT_POINT', 'expected a point'); }
   private pidOrNew(p: any): PointId { if (Array.isArray(p)) return this.point(p[0], p[1]).id; return this.pid(p); }
   private lineE(l: any): LineE { const e = this.ent(typeof l === 'number' ? l : l.id); if (e.kind !== 'line') throw new ForgeError('CSKETCH.NOT_LINE', 'expected a line'); return e; }
+  private arcE(a: any): ArcE { const e = this.ent(typeof a === 'number' ? a : a.id); if (e.kind !== 'arc') throw new ForgeError('CSKETCH.NOT_ARC', 'expected an arc'); return e; }
+  private shapePts(s: any): PointId[] { if (s?.kind === 'shape') return s.points; if (Array.isArray(s)) return s.map((p: any) => this.pid(p)); throw new ForgeError('CSKETCH.NOT_SHAPE', 'expected a shape handle from shape(), groupRect() or group()'); }
+  private polyArea(v: (i: number) => number, P: PointId[]) { let a = 0; for (let i = 0; i < P.length; i++) { const p = P[i], q = P[(i + 1) % P.length]; a += v(this.xi(p)) * v(this.yi(q)) - v(this.xi(q)) * v(this.yi(p)); } return a / 2; }
+  private polyCentroid(v: (i: number) => number, P: PointId[]): Vec2 {
+    const A = this.polyArea(v, P);
+    if (Math.abs(A) < 1e-12) return [P.reduce((s, p) => s + v(this.xi(p)), 0) / P.length, P.reduce((s, p) => s + v(this.yi(p)), 0) / P.length];
+    let cx = 0, cy = 0;
+    for (let i = 0; i < P.length; i++) { const p = P[i], q = P[(i + 1) % P.length]; const c = v(this.xi(p)) * v(this.yi(q)) - v(this.xi(q)) * v(this.yi(p)); cx += (v(this.xi(p)) + v(this.xi(q))) * c; cy += (v(this.yi(p)) + v(this.yi(q))) * c; }
+    return [cx / (6 * A), cy / (6 * A)];
+  }
+  private arcSweep(v: (i: number) => number, A: ArcE) {
+    const a0 = Math.atan2(v(this.yi(A.a)) - v(this.yi(A.c)), v(this.xi(A.a)) - v(this.xi(A.c)));
+    const a1 = Math.atan2(v(this.yi(A.b)) - v(this.yi(A.c)), v(this.xi(A.b)) - v(this.xi(A.c)));
+    let d = a1 - a0;
+    if (A.clockwise) { while (d > 0) d -= 2 * Math.PI; return -d; }
+    while (d < 0) d += 2 * Math.PI;
+    return d;
+  }
   private circleE(c: any): CircleE { const e = this.ent(typeof c === 'number' ? c : c.id); if (e.kind !== 'circle') throw new ForgeError('CSKETCH.NOT_CIRCLE', 'expected a circle'); return e; }
   private lastPoint(): PointE { const id = this.current?.points[this.current.points.length - 1]; return id ? (this.ent(id) as PointE) : this.point(0, 0); }
   private addC(kind: string, refs: any[], residual: Constraint['residual'], value?: number) {
@@ -371,6 +470,7 @@ export class ConstraintSketch {
   ) {}
   get definition() { return { entities: this.entities, loops: this.loops }; }
   point(id: number | { id: number }) { const p = this.pos.get(typeof id === 'number' ? id : id.id)!; return { x: p[0], y: p[1] }; }
+  pointIds() { return this.entities.filter((e) => e.kind === 'point').map((e) => e.id); }
   private loopPolyline(loop: { items: { kind: 'line' | 'arc'; id: number }[]; points: number[] }): Vec2[] {
     const out: Vec2[] = [];
     for (const it of loop.items) {

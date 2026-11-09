@@ -18,3 +18,18 @@ export function initNode(): Promise<void> {
   })();
   return ready;
 }
+
+let stepReady: Promise<boolean> | null = null;
+/** Load OpenCascade's STEP reader (optional dependency occt-import-js) for Import.step. */
+export function ensureStepReaderNode(): Promise<boolean> {
+  if (!stepReady) stepReady = (async () => {
+    try {
+      const req = createRequire(import.meta.url);
+      const init = req('occt-import-js');
+      const { installStepReader } = await import('./stepReader');
+      installStepReader(await init());
+      return true;
+    } catch { return false; }
+  })();
+  return stepReady;
+}

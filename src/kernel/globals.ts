@@ -15,6 +15,8 @@ import { Curve, loft, sweep, variableSweep, Loft } from './curves';
 import * as lib from './lib';
 import { text2d, textWidth, loadFont } from './text';
 import { constrainedSketch } from './constraints';
+import { Import } from './importers';
+import { Laser, SheetMetal, sheetMetal } from './fabrication';
 import { mat4, v3 } from './math';
 import { ctx } from './context';
 
@@ -61,15 +63,14 @@ export function buildGlobals(): Record<string, any> {
     gearPair: lib.gearPair, bevelGearPair: lib.bevelGearPair, faceGearPair: lib.faceGearPair, gearRatio: lib.gearRatio, rackRatio: lib.rackRatio,
     planetaryRatio: lib.planetaryRatio, sectorGear: lib.sectorGear, gearBodies: lib.gearBodies, driveWheel: lib.driveWheel, readDriveWheelMeta: lib.readDriveWheelMeta,
     hexagon: lib.hexagon, metric, lib: libNamespace,
-    Points, ANCHOR3D_NAMES, SHEET_METAL_EDGES, route, Optics, SimReady,
+    Import, Points, ANCHOR3D_NAMES, SHEET_METAL_EDGES, route, Optics, SimReady,
     // math helpers
     Transform, Vec3: v3, deg: (r: number) => (r * 180) / Math.PI, rad: (d: number) => (d * Math.PI) / 180,
     // classes for instanceof checks
     Shape, Sketch: sk.Sketch, Assembly,
     // Wood.* library: joinery-friendly lumber helpers
     Wood: woodLib(),
-    Laser: laserLib(),
-    sheetMetal: (o: any) => laserLib().sheet(o),
+    Laser, SheetMetal, sheetMetal,
     get __ctx() { return ctx(); },
   };
 }
@@ -96,22 +97,6 @@ function woodLib() {
     },
     ...woodJoinery,
     dowelHole: (shape: Shape, face: string, o: { diameter?: number; depth?: number; u?: number; v?: number } = {}) => shape.hole(face, { diameter: o.diameter ?? 8, depth: o.depth ?? 20, u: o.u, v: o.v }),
-  };
-}
-
-function laserLib() {
-  return {
-    sheet: (o: { outline: sk.Sketch; thickness: number; material?: string; kerf?: number }) =>
-      o.outline.offset((o.kerf ?? 0) / 2).extrude(o.thickness).withMeta({ sheet: { thickness: o.thickness, material: o.material, kerf: o.kerf ?? 0 } }),
-    fingerJoint: (length: number, o: { thickness: number; fingers?: number; invert?: boolean }) => {
-      const n = o.fingers ?? Math.max(3, Math.round(length / (o.thickness * 3)) | 1);
-      const w = length / n;
-      const parts: sk.Sketch[] = [];
-      for (let i = o.invert ? 1 : 0; i < n; i += 2) parts.push(sk.rect(w, o.thickness).translate(-length / 2 + w * (i + 0.5), 0));
-      return parts.length ? sk.union2d(parts) : sk.rect(0.001, 0.001);
-    },
-    toDxf: (s: sk.Sketch, o?: any) => sketchToDxf(s, o),
-    toSvg: (s: sk.Sketch, o?: any) => sketchToSvg(s, o),
   };
 }
 
