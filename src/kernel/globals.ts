@@ -62,7 +62,9 @@ export function buildGlobals(): Record<string, any> {
     // scene
     scene, cutPlane, explodeView, compareWith, mock, Viewport,
     // assemblies & physics
-    assembly, connector, Spring, Sim, Fea, PhysicalMaterial, PhysicalProperties,
+    assembly, connector, Spring, Sim,
+    withAssemblyStep: (a: any, b?: any) => (a?.withAssemblyStep && b !== undefined ? a.withAssemblyStep(b) : (s: any) => s.withAssemblyStep(a)),
+    Fea, PhysicalMaterial, PhysicalProperties,
     // library
     tube: lib.tube, pipe: lib.pipe, explode: lib.explode, bracket: lib.bracket, holePattern: lib.holePattern,
     thread: lib.thread, bolt: lib.bolt, nut: lib.nut, washer: lib.washer, fastenerSet: lib.fastenerSet, boltPattern: lib.boltPattern,

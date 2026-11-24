@@ -12,6 +12,7 @@ import { Curve3D } from './curves';
 import { mat4, Mat4 } from './math';
 import type { Manifold } from 'manifold-3d';
 import { MeshRuns, SurfaceDef, surfaceTable } from './surfaces';
+import { assemblySteps, stepExplodeOffsets, AssemblyStepsInfo } from './assembly-steps';
 
 /** `runs` + `surfaces` let exporters rebuild exact surfaces (see kernel/surfaces.ts). */
 export interface MeshData { positions: Float32Array; indices: Uint32Array; runs?: MeshRuns; surfaces?: Record<number, SurfaceDef[]> }
@@ -29,6 +30,8 @@ export interface SceneObject {
   transform?: Mat4;
   stats?: { volume: number; area: number; bbox: { min: number[]; max: number[] }; triangles: number };
   meta?: any;
+  /** Explode offset at 100 % when the model has assembly steps. */
+  stepExplode?: number[];
 }
 export interface JointInfo { name: string; type: string; min?: number; max?: number; default?: any; unit?: string; parent: string; child: string; follows?: any; drive?: any }
 export interface AssemblyInfo { name: string; parts: string[]; joints: JointInfo[]; poses: Record<string, any>; animations: Record<string, any>; values: Record<string, any>; warnings: string[]; simulation?: any; springs: string[]; cables: string[] }
@@ -46,6 +49,7 @@ export interface RunResult {
   explode: any;
   assemblies: AssemblyInfo[];
   feaStudies?: FeaStudyInfo[];
+  assemblySteps?: AssemblyStepsInfo;
   error?: { message: string; code?: string; line?: number; column?: number; file?: string; stack?: string };
   warnings: string[];
   timeMs: number;
@@ -198,6 +202,14 @@ export function runProject(project: Project, paramValues: Record<string, any> = 
     objects, params: c.params, checks: c.checks, bom: c.bom, dims: c.dims, labels: c.labels, logs: c.logs, scene: c.scene,
     cutPlanes: c.cutPlanes, explode: c.explode, assemblies, error, feaStudies: live.feaStudies.map(feaInfo), warnings: [...c.warnings], timeMs: (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0,
   };
+  if (!error) {
+    try {
+      const info = assemblySteps(result);
+      if (info.steps.length || info.pages.length) result.assemblySteps = info;
+      const offs = info.steps.length ? stepExplodeOffsets(result) : null;
+      if (offs) for (const o of objects) o.stepExplode = offs[o.id] ?? [0, 0, 0];
+    } catch (e: any) { result.warnings.push(`assembly steps: ${e.message}`); }
+  }
   live.result = result;
   live.returned = returned;
   allocations.list = null;

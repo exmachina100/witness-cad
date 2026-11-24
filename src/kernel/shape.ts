@@ -1,5 +1,6 @@
 // Shape: an immutable solid backed by a Manifold mesh, with colour, material, face labels and connectors.
 import type { Manifold } from 'manifold-3d';
+import { transformStepMeta } from './assembly-steps';
 import { K } from './wasm';
 import { mat4, Mat4, toVec3, v3, Vec3 } from './math';
 import { ForgeError } from './errors';
@@ -91,7 +92,7 @@ export class Shape {
     return new Shape(m, {
       faces, color: this.colorValue, material: this.materialProps, connectors, name: this.name,
       recipe: xf ? (this.recipe ? { ...this.recipe, xf: mat4.mul(xf, this.recipe.xf ?? mat4.identity()) } : undefined) : undefined,
-      meta: xf && this.meta.references ? { ...this.meta, references: Object.fromEntries(Object.entries(this.meta.references).map(([k, v]) => [k, mat4.apply(xf, toVec3(v))])) } : this.meta, ...extra,
+      meta: xf ? transformStepMeta(this.meta.references ? { ...this.meta, references: Object.fromEntries(Object.entries(this.meta.references).map(([k, v]) => [k, mat4.apply(xf, toVec3(v))])) } : this.meta, xf) : this.meta, ...extra,
     });
   }
 

@@ -34,8 +34,8 @@ Status: [ ] open, [x] done, [~] done with a documented difference.
 
 ## D. Assemblies and mechanisms
 - [x] SolvedAssembly.bomCsv (documented as removed: throws)
-- [ ] Assembly steps: removal-direction check (ASSEMBLY.STEP.PASSES_THROUGH, ASSEMBLY.NO_STEPS) in check_assembly; explode along steps; build guide (instructions PDF in the manufacturing package)
-- [ ] `sim mechanism` CLI: DOF, static hold load per driven joint, effort margin (--min-torque-margin-pct)
+- [x] Assembly steps: removal-direction check (ASSEMBLY.STEP.PASSES_THROUGH, ASSEMBLY.NO_STEPS) in check_assembly; explode along steps; build guide (instructions PDF in the manufacturing package)
+- [x] `sim mechanism` CLI: DOF, static hold load per driven joint, effort margin (--min-torque-margin-pct)
 
 ## E. Library / fabrication
 - [x] TangentLoop2D class (circles, mode, segments, straightSpans, wraps, wrapByPulley, length, toJointPath, toSketch, toProfile, offsetBand)

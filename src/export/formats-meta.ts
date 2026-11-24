@@ -17,6 +17,7 @@ export const EXPORT_FORMATS = {
   dxf: { label: 'DXF outline (top view)', ext: 'dxf', mime: 'image/vnd.dxf', group: 'CAD' },
   svg: { label: 'SVG outline (top view)', ext: 'svg', mime: 'image/svg+xml', group: 'CAD' },
   'dxf-section': { label: 'DXF section (mid height)', ext: 'dxf', mime: 'image/vnd.dxf', group: 'CAD' },
+  guide: { label: 'Build guide (instructions PDF)', ext: 'pdf', mime: 'application/pdf', group: 'Documents' },
   drawing: { label: 'Part drawing (SVG)', ext: 'svg', mime: 'image/svg+xml', group: 'Documents' },
   bom: { label: 'Bill of materials (CSV)', ext: 'csv', mime: 'text/csv', group: 'Documents' },
   package: { label: 'Manufacturing package (zip)', ext: 'zip', mime: 'application/zip', group: 'Documents' },

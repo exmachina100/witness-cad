@@ -433,7 +433,8 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport({ re
         it.mesh.userData.bbox.visible = true;
       } else if (it.mesh.userData.bbox) it.mesh.userData.bbox.visible = false;
       // explode
-      const off = it.center.clone().sub(center).multiplyScalar(o.explode);
+      const se = it.obj.stepExplode;
+      const off = se ? new THREE.Vector3(se[0], se[1], se[2]).multiplyScalar(o.explode) : it.center.clone().sub(center).multiplyScalar(o.explode);
       it.node.userData.explode = off;
     }
     if (o.mode !== 'distance') { s.measurePts = []; s.measureGroup?.clear(); }

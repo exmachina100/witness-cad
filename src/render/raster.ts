@@ -11,7 +11,7 @@ const norm = (v: number[]) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; ret
 const cross = (a: number[], b: number[]) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
-export type RenderOpts = { width?: number; height?: number; view?: RenderView; direction?: [number, number, number]; transforms?: Record<string, number[]>; background?: [number, number, number] };
+export type RenderOpts = { width?: number; height?: number; view?: RenderView; direction?: [number, number, number]; transforms?: Record<string, number[]>; background?: [number, number, number]; bounds?: { min: number[]; max: number[] } };
 export function renderPng(result: RunResult, o: RenderOpts = {}): Uint8Array {
   const r = renderRgb(result, o);
   return encodePng(r.rgb, r.width, r.height);
@@ -31,7 +31,9 @@ export function renderRgb(result: RunResult, o: RenderOpts = {}): { rgb: Uint8Ar
   const upHint = Math.abs(d[2]) > 0.95 ? [0, 1, 0] : [0, 0, 1];
   const right = norm(cross(upHint, d)), up = cross(d, right);
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const m of meshes) for (let i = 0; i < m.positions.length; i += 3) {
+  // Fixed framing (animations): fit the given box instead of the visible meshes.
+  const fit = o.bounds ? [{ positions: Float32Array.from([0, 1, 2, 3, 4, 5, 6, 7].flatMap((c) => [c & 1 ? o.bounds!.max[0] : o.bounds!.min[0], c & 2 ? o.bounds!.max[1] : o.bounds!.min[1], c & 4 ? o.bounds!.max[2] : o.bounds!.min[2]])) }] : meshes;
+  for (const m of fit) for (let i = 0; i < m.positions.length; i += 3) {
     const p = [m.positions[i], m.positions[i + 1], m.positions[i + 2]];
     const x = dot(p, right), y = dot(p, up);
     minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y);
