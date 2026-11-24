@@ -3,6 +3,7 @@ import { ctx, ParamDef } from './context';
 import { ForgeError } from './errors';
 import { polygon, spline2d, stroke } from './sketch';
 import { Curve } from './curves';
+import { Path2DParamValue, Spline2DParamValue, Placement2DParamValue } from './parity';
 
 function declare(type: ParamDef['type'], name: string, def: any, opts: any = {}) {
   if (typeof name !== 'string' || !name) throw new ForgeError('PARAM.NAME', 'parameter name must be a non-empty string');
@@ -37,14 +38,6 @@ function niceStep(x: number) {
   return (m < 2 ? 1 : m < 5 ? 2 : 5) * p;
 }
 
-function wrapPath(points: any[], closed: boolean) {
-  return {
-    points,
-    toSketch: () => (closed ? polygon(points.map((p: any) => [p.x ?? p[0], p.y ?? p[1]])) : stroke(points.map((p: any) => [p.x ?? p[0], p.y ?? p[1]]), 1)),
-    toPolyline: () => points.map((p: any) => [p.x ?? p[0], p.y ?? p[1]]),
-  };
-}
-
 export const Param = {
   number: numberParam,
   string: (name: string, def: string, opts: any = {}) => declare('string', name, def, opts) as string,
@@ -55,28 +48,9 @@ export const Param = {
     return declare('choice', name, def, { ...opts, choices }) as string;
   },
   list: (name: string, defItems: any[], opts: any = {}) => declare('list', name, defItems, opts) as any[],
-  path2d: (name: string, defPoints: any[], opts: any = {}) => wrapPath(declare('path2d', name, defPoints, opts), opts.closed ?? true),
-  spline2d: (name: string, defPoints: any[], opts: any = {}) => {
-    const pts = declare('spline2d', name, defPoints, opts);
-    const xy = pts.map((p: any) => [p.x ?? p[0], p.y ?? p[1]]);
-    return {
-      points: pts,
-      toSketch: (o: any = {}) => spline2d(xy, { closed: opts.closed ?? true, ...o }),
-      toCurveOnXZ: (y = 0) => Curve.placeOnXZ(xy, y),
-      toCurveOnXY: (z = 0) => Curve.placeOnXY(xy, z),
-    };
-  },
-  placement2d: (name: string, opts: any = {}) => {
-    const items = declare('placement2d', name, opts.items ?? [], opts);
-    return {
-      items,
-      item: (id: string) => {
-        const it = items.find((i: any) => i.id === id);
-        if (!it) throw new ForgeError('PARAM.PLACEMENT_ITEM', `no placement item "${id}"`);
-        return { x: it.x ?? 0, y: it.y ?? 0, angle: it.angle ?? 0, zone: it.zone };
-      },
-    };
-  },
+  path2d: (name: string, defPoints: any[], opts: any = {}) => new Path2DParamValue(declare('path2d', name, defPoints, opts), opts.closed ?? true),
+  spline2d: (name: string, defPoints: any[], opts: any = {}) => new Spline2DParamValue(declare('spline2d', name, defPoints, opts), opts.closed ?? true, opts.degree ?? 3),
+  placement2d: (name: string, opts: any = {}) => new Placement2DParamValue(declare('placement2d', name, opts.items ?? [], opts)),
   variant: (name: string, values: Record<string, any>) => {
     declare('variant', name, values, {});
     return { name, values, withStageChoice: (set: string, choice: string) => ({ name, values: { ...values, [set]: choice } }) };

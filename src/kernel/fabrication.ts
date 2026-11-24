@@ -1,3 +1,4 @@
+import { FlatPart, FlatLaserKit, laserPanel, laserFlatPart, laserJoint, foldParts, laserInstructions, formatFlatInstructions, COMMON_KERF_TABLE, lookupKerfEntry } from './parity-lib';
 // Sheet metal (bend rules, flanges, flat patterns) and laser-cut kits (panels, tab-and-slot, nesting, instructions).
 import { ForgeError } from './errors';
 import { Shape } from './shape';
@@ -198,20 +199,26 @@ function formatInstructions(ins: ReturnType<typeof instructions>): string {
   return lines.join('\n');
 }
 
+const isFlat = (x: any) => x instanceof FlatPart;
 export const Laser = {
-  COMMON_KERFS,
-  lookupKerf,
+  /** Kerf table entries: { material, thickness, kerf, laserType }. */
+  COMMON_KERFS: COMMON_KERF_TABLE,
+  lookupKerf: (material: string, thickness?: number, laserType?: string) => (laserType ? lookupKerfEntry(material, thickness, laserType) : lookupKerf(material, thickness)),
   sheet: (o: { outline: Sketch; thickness: number; material?: string; kerf?: number }) => laserPart(o.outline, o),
-  part: (outline: Sketch, o: { thickness: number; material?: string; kerf?: number; name?: string; color?: string }) => laserPart(outline, o),
+  /** part(name, profile, thickness, edges?, options?) → FlatPart; part(sketch, { thickness }) → flat solid (older form). */
+  part: (a: any, b: any, c?: any, d?: any, e?: any): any => (typeof a === 'string' ? laserFlatPart(a, b, c, d, e) : laserPart(a, b)),
   /** Rectangular panel with optional rounded corners and holes: panel({ width, height, thickness, cornerRadius, holes: [{ x, y, d }] }). */
-  panel(o: { width: number; height: number; thickness: number; cornerRadius?: number; holes?: { x: number; y: number; d: number }[]; material?: string; kerf?: number; name?: string }) {
+  panel(o: any, w?: number, h?: number, t?: number, opts?: any): any {
+    if (typeof o === 'string') return laserPanel(o, w!, h!, t!, opts);
     let s = rect(o.width, o.height);
     if (o.cornerRadius) s = s.filletCorners(o.cornerRadius);
     if (o.holes?.length) s = s.subtract(...o.holes.map((h) => polygon(Array.from({ length: 48 }, (_, i) => [h.x + (h.d / 2) * Math.cos((i * Math.PI) / 24), h.y + (h.d / 2) * Math.sin((i * Math.PI) / 24)] as Vec2))));
     return laserPart(s, o);
   },
-  tabSlot,
-  fingerJoint: (length: number, o: { thickness: number; fingers?: number; invert?: boolean }) => {
+  /** tabSlot(partA, edgeA, partB, edgeB, options?) joins two FlatParts; tabSlot({ length, thickness }) returns the raw tab/slot sketches. */
+  tabSlot: (a: any, ea?: string, b?: any, eb?: string, o?: any): any => (isFlat(a) ? laserJoint('tabSlot', a, ea!, b, eb!, o) : tabSlot(a)),
+  fingerJoint: (length: any, o: any, b?: any, eb?: string, opts?: any): any => {
+    if (isFlat(length)) return laserJoint('finger', length, o, b, eb!, opts);
     const n = o.fingers ?? Math.max(3, Math.round(length / (o.thickness * 3)) | 1);
     const w = length / n;
     const parts: Sketch[] = [];
@@ -219,7 +226,8 @@ export const Laser = {
     return parts.length ? union2d(parts) : rect(0.001, 0.001);
   },
   /** Collect parts into a kit: kit({ side: shape, ... } | [{ name, shape, quantity, pose, step }], { sheetWidth, sheetHeight }). */
-  kit(parts: any, o: { sheetWidth?: number; sheetHeight?: number; spacing?: number; material?: string; thickness?: number } = {}) {
+  kit(parts?: any, o: { sheetWidth?: number; sheetHeight?: number; spacing?: number; material?: string; thickness?: number } = {}): any {
+    if (parts == null || (!Array.isArray(parts) && !Object.values(parts).some((v) => v instanceof Shape || (v as any)?.shape))) return new FlatLaserKit(parts ?? {});
     const list: KitPart[] = (Array.isArray(parts) ? parts : Object.entries(parts).map(([name, v]) => (v instanceof Shape ? { name, shape: v } : { name, ...(v as any) }))).map((p: any) => {
       const shape: Shape = p.shape ?? p.part;
       const outline: Sketch = p.outline ?? shape.meta.sheet?.outline ?? shape.project();
@@ -229,11 +237,12 @@ export const Laser = {
     return new LaserKit(list, { sheetWidth: o.sheetWidth ?? 600, sheetHeight: o.sheetHeight ?? 400, spacing: o.spacing ?? 3, material: o.material ?? list[0]?.shape.meta.sheet?.material, thickness });
   },
   /** Posed 3D preview of a kit: each part moved by its `pose` (a function or transform). */
-  assemblyPreview(kit: LaserKit): ShapeGroup {
+  assemblyPreview(kit: any, joints?: any[], o?: any): ShapeGroup {
+    if (Array.isArray(kit)) return foldParts(kit, joints ?? [], o);
     return group(kit.parts.map((p) => ({ name: p.name, shape: typeof p.pose === 'function' ? p.pose(p.shape) : p.pose ? p.shape.transform(p.pose) : p.shape })));
   },
-  instructions,
-  formatInstructions,
+  instructions: (kit: any, joints?: any, o?: any): any => (Array.isArray(kit) ? laserInstructions(kit, joints ?? [], o) : instructions(kit, joints)),
+  formatInstructions: (r: any) => (r.steps?.[0]?.joint || r.cutList?.[0]?.partNumber ? formatFlatInstructions(r) : formatInstructions(r)),
   toDxf: (s: Sketch, o?: any) => sketchToDxf(s, o),
   toSvg: (s: Sketch, o?: any) => sketchToSvg(s, o),
 };

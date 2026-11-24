@@ -1,4 +1,5 @@
 // Part library: tubes, fasteners, gears, extrusions, pipes, belts.
+import { TangentLoop2D } from './parity-lib';
 import { K } from './wasm';
 import { mat4, toVec3, v3, Vec2, Vec3 } from './math';
 import { Shape } from './shape';
@@ -135,11 +136,7 @@ export function elbow(pipeRadius: number, bendRadius: number, angle = 90, o: { w
 }
 
 // ---------------------------------------------------------------- belts
-export function tangentLoop2d(circles: { x: number; y: number; r: number }[], o: { mode?: 'open' | 'crossed' } = {}) {
-  const pts: Vec2[] = [];
-  for (const c of circles) for (let i = 0; i < 64; i++) pts.push([c.x + c.r * Math.cos((i / 64) * 2 * Math.PI), c.y + c.r * Math.sin((i / 64) * 2 * Math.PI)]);
-  return new Sketch(K().CrossSection.ofPolygons([pts] as any).hull());
-}
+export function tangentLoop2d(circles: any[], o: { mode?: 'open' | 'crossed' } = {}) { return new TangentLoop2D(circles, o); }
 export function beltDrive(o: { pulleys: Record<string, { center: Vec2; teeth?: number; pitchRadius?: number }>; pitch?: number; beltWidth: number; beltThickness?: number }) {
   const pitch = o.pitch ?? 2;
   const circles = Object.entries(o.pulleys).map(([name, p]) => ({ name, x: p.center[0], y: p.center[1], r: p.pitchRadius ?? ((p.teeth ?? 20) * pitch) / (2 * Math.PI) }));
