@@ -112,9 +112,9 @@ declare const Param: {
   bool(name: string, defaultValue: boolean): boolean;
   choice<T extends string>(name: string, defaultValue: T, choices: T[]): T;
   list(name: string, defaultItems: any[], opts?: { minItems?: number; maxItems?: number; fields?: any }): any[];
-  path2d(name: string, points: Vec2[], opts?: { closed?: boolean }): { points: Vec2[]; toSketch(): Sketch };
-  spline2d(name: string, points: Vec2[], opts?: any): { points: Vec2[]; toSketch(): Sketch; toCurveOnXZ(y?: number): any };
-  placement2d(name: string, opts: any): { item(id: string): { x: number; y: number; angle: number } };
+  path2d(name: string, points: Vec2[], opts?: { closed?: boolean }): { closed: boolean; points(): Vec2[]; toSketch(): Sketch; toStroke(width: number, join?: 'Round' | 'Square'): Sketch };
+  spline2d(name: string, points: Vec2[], opts?: any): { closed: boolean; degree: number; points(): Vec2[]; nodes(): any[]; toPolyline(samples?: number): Vec2[]; toSketch(): Sketch; toCurveOnXY(z?: number): any; toCurveOnXZ(y?: number): any; toCurveOnYZ(x?: number): any; toPathOnXY(z?: number): any; toPathOnYZ(x?: number): any };
+  placement2d(name: string, opts: any): { items(): any[]; item(id: string): { x: number; y: number; angle: number } };
   variant(name: string, values: Record<string, any>): any;
   anchor: any;
 };

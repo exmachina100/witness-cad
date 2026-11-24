@@ -76,7 +76,7 @@ export class Shape {
     allocations.list?.push(m);
     this.faceLabels = init.faces ?? [];
     this.colorValue = init.color;
-    this.materialProps = init.material;
+    this.materialProps = init.material ?? {};
     this.connectors = init.connectors ?? {};
     this.name = init.name;
     this.recipe = init.recipe;

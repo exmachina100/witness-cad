@@ -396,6 +396,8 @@ export class SolvedAssembly {
   }
   toSceneObjects() { return this.toGroup().children; }
 
+  /** Removed in ForgeCAD: build CSV from bom() rows instead. */
+  bomCsv(): never { throw new ForgeError('BOM.CSV_REMOVED', 'bomCsv() was removed; build CSV text from solved.bom() rows'); }
   bom() {
     const rows = new Map<string, any>();
     for (const p of this.assembly.parts) {

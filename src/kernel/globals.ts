@@ -21,17 +21,21 @@ import { Laser, SheetMetal, sheetMetal } from './fabrication';
 import { Surface, SurfaceBody, SurfaceSheet, Blend, Analysis, Thickness, Sculpt, Product, CarrierNS, SurfaceMembers } from './surfacing';
 import { mat4, v3 } from './math';
 import { ctx } from './context';
+import { woodBoard, woodDado, woodMortiseAndTenon, WoodBoard } from './parity-lib';
+import { installCoreParity, wrapTransformNamespace, Point2D, Line2D, Circle2D, Rectangle2D, TransformMatrix } from './parity';
 
-export const Transform = {
+installCoreParity();
+
+export const Transform = wrapTransformNamespace({
   identity: () => mat4.identity(),
   translation: (x: number, y: number, z: number) => mat4.translation(x, y, z),
   rotation: (axis: [number, number, number], deg: number) => mat4.axisAngle(axis, deg),
-  scale: (x: number, y = x, z = x) => mat4.scaling(x, y, z),
+  scale: (x: number | number[], y?: number, z?: number) => (Array.isArray(x) ? mat4.scaling(x[0], x[1], x[2]) : mat4.scaling(x, y ?? x, z ?? x)),
   multiply: (...ms: number[][]) => ms.reduce((a, b) => mat4.mul(a, b), mat4.identity()),
   invert: (m: number[]) => mat4.invert(m),
   apply: (m: number[], p: [number, number, number]) => mat4.apply(m, p),
   ...TransformExtras,
-};
+});
 
 export function buildGlobals(): Record<string, any> {
   return {
@@ -70,7 +74,7 @@ export function buildGlobals(): Record<string, any> {
     // math helpers
     Transform, Vec3: v3, deg: (r: number) => (r * 180) / Math.PI, rad: (d: number) => (d * Math.PI) / 180,
     // classes for instanceof checks
-    Shape, Sketch: sk.Sketch, Assembly,
+    Shape, Sketch: sk.Sketch, Assembly, Point2D, Line2D, Circle2D, Rectangle2D, TransformMatrix,
     // Wood.* library: joinery-friendly lumber helpers
     Wood: woodLib(),
     Laser, SheetMetal, sheetMetal,
@@ -79,8 +83,7 @@ export function buildGlobals(): Record<string, any> {
 }
 
 function woodLib() {
-  const board = (length: number, width: number, thickness: number, o: { species?: string; grain?: 'x' | 'y' | 'z' } = {}) =>
-    ops.box(length, width, thickness).color(o.species === 'walnut' ? '#5b3a29' : o.species === 'oak' ? '#b08a5a' : '#c9a36b').withMeta({ wood: { species: o.species ?? 'pine', grain: o.grain ?? 'x', length, width, thickness } });
+  const board = (width: number, height: number, thickness: number, o: { species?: string; grain?: 'x' | 'y' | 'z'; color?: string } = {}) => woodBoard(ops.box, width, height, thickness, o);
   return {
     board,
     lumber: (nominal: string, length: number) => {
@@ -99,6 +102,15 @@ function woodLib() {
       return shape.cutout(sk.rect(o.width + c, o.thickness + c).onFace(shape, face), { depth: o.depth });
     },
     ...woodJoinery,
+    /** dado(host, guest, opts) board-on-board, or dado(board, face, { width, depth }) on a face. */
+    dado: (host: Shape, guest: any, o: any = {}) => (guest instanceof Shape ? woodDado(host, guest, o) : woodJoinery.dado(host, guest, o)),
+    /** rabbet(board, { face, edge, width, depth }) or rabbet(board, face, edgeFace, { width, depth }). */
+    rabbet: (b: Shape, face: any, edgeFace?: any, o?: any) => {
+      const out = typeof face === 'string' ? woodJoinery.rabbet(b, face, edgeFace, o) : woodJoinery.rabbet(b, face.face ?? 'top', face.edge ?? face.edgeFace ?? 'right', face);
+      return b instanceof WoodBoard ? WoodBoard.from(out, (b as any).wood) : out;
+    },
+    /** mortiseAndTenon(mortiseBoard, tenonBoard, opts?) board-on-board, or (a, aFace, b, bFace, opts) on faces. */
+    mortiseAndTenon: (a: Shape, b: any, c?: any, d?: any, e?: any) => (b instanceof Shape ? woodMortiseAndTenon(a, b, c) : woodJoinery.mortiseAndTenon(a, b, c, d, e)),
     dowelHole: (shape: Shape, face: string, o: { diameter?: number; depth?: number; u?: number; v?: number } = {}) => shape.hole(face, { diameter: o.diameter ?? 8, depth: o.depth ?? 20, u: o.u, v: o.v }),
   };
 }

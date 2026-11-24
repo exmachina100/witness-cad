@@ -534,6 +534,8 @@ export function variableSweep(spine: any, sections: { t: number; profile: Sketch
 }
 
 export const Loft = {
+  /** A 2D path placed on the XZ plane (x across, z up), for guide rails. */
+  pathOnXz: (path: any, y = 0) => Curve.placeOnXZ(path, y),
   field: (profiles: Sketch[], heights: any[], opts: any = {}) => loft(profiles, heights, opts),
   withGuideRails: (stations: { profile: Sketch; position: number }[], _rails: any, opts: any = {}) =>
     loft(stations.map((s) => s.profile), stations.map((s) => s.position), opts),
