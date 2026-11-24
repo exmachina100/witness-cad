@@ -28,7 +28,7 @@ function numberParam(name: string, def: number, opts: any = {}) {
   const o = { ...opts };
   if (o.min == null) o.min = def < 0 ? def * 4 : 0;
   if (o.max == null) o.max = def === 0 ? 100 : Math.abs(def) * 4;
-  if (o.step == null) o.step = o.integer ? 1 : niceStep((o.max - o.min) / 100);
+  if (o.step == null) { o.step = o.integer ? 1 : niceStep((o.max - o.min) / 100); o.autoStep = !o.integer; }
   return declare('number', name, def, o) as number;
 }
 function niceStep(x: number) {

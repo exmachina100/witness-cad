@@ -16,18 +16,21 @@ import { readFiles, store } from '../mcp/store';
 import { live } from '../src/kernel/runtime';
 import { simulateDynamics, holdTest } from '../src/kernel/physics';
 import { mechanismReport } from '../src/kernel/mechanism';
+import { combinationSpace, combinationValues, combinationIndex, describeSpace, checkCombinations, checkVariants, variantKey } from '../src/kernel/combinations';
 
 const USAGE = `witness <command> <project> [options]
 
 Commands
-  build   <project>                       build and print a summary (alias: run)
+  build   <project> [--combination N] [--variant key]   build and print a summary (alias: run)
+  check combinations <project>            build every combination (≤100) or a pairwise cover + last + 20 random
+  check variants <project>                build every Param.variant and report declaration problems
   check   <project> [--combinations "Width=60,120;Height=6,12"] [--variants variants.json]
                                           build (every combination / variant) and exit 1 if a build or verify check fails
   params  <project>                       list parameters and their values
   export  <project> --format <fmt> [--out file]   formats: ${Object.keys(EXPORT_FORMATS).join(', ')}
   strength <project> [--study name] [--fix bottom --load top --newtons 100 --material aluminum6061T6] [--elements 12000]
                                           finite element stress check; exits 1 below the study's target safety factor
-  render  <project> [--view iso|front|top|…] [--out file.png] [--size 1200x800]
+  render  <project> [--view iso|front|top|front-right|<scene view>] [--out file.png] [--size 1200x800]
   video   <project> [--frames 36] [--out turntable.gif] [--size 480x360]    turntable GIF
   video   <project> --recipe build-up [--frames 10]                         assembly build-up along the steps
   sim     <project> [--seconds 2] [--assembly name] [--target joint=value]   rigid-body dynamics summary
@@ -43,7 +46,7 @@ export also takes --view top|front|right|section and --at z for dxf / svg outlin
 function args() {
   let [cmd, target, ...rest] = process.argv.slice(2);
   let sub: string | undefined;
-  if (cmd === 'sim' && target === 'mechanism') { sub = 'mechanism'; target = rest.shift()!; }
+  if ((cmd === 'sim' && target === 'mechanism') || (cmd === 'check' && (target === 'combinations' || target === 'variants'))) { sub = target; target = rest.shift()!; }
   const o: Record<string, string> = {}, set: Record<string, any> = {};
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
@@ -80,11 +83,38 @@ async function main() {
   projectResolver.fn = (alias) => store.byAlias(alias);
   const proj = load(target, o.entry);
   if (projectNeedsStep(proj.files)) await ensureStepReaderNode();
-  const r: RunResult = runProject({ files: proj.files, entry: proj.entry }, set);
+  let r: RunResult = runProject({ files: proj.files, entry: proj.entry }, set);
+  const rebuild = (vals: Record<string, any>) => runProject({ files: proj.files, entry: proj.entry }, { ...set, ...vals });
+  const space = combinationSpace(r.params);
+  if (o.combination != null) {
+    const vals = combinationValues(space, Number(o.combination));
+    r = rebuild(vals);
+  }
+  if (o.variant != null) {
+    const v = r.params.find((p) => p.type === 'variant' && (p.name === o.variant || variantKey(p.name) === o.variant));
+    if (!v) { console.error(`no variant "${o.variant}" (${r.params.filter((p) => p.type === 'variant').map((p) => variantKey(p.name)).join(', ') || 'none declared'})`); process.exit(1); }
+    r = rebuild(v.default);
+  }
   switch (cmd) {
     case 'run':
-    case 'build': console.log(summarizeBuild(r)); process.exit(r.ok ? 0 : 1);
+    case 'build': {
+      if (space.factors.length) console.log(describeSpace(space, o.combination != null ? Number(o.combination) : combinationIndex(space, Object.fromEntries(r.params.map((p) => [p.name, p.value]))) ?? 0));
+      console.log(summarizeBuild(r)); process.exit(r.ok ? 0 : 1);
+    }
     case 'check': {
+      if (sub === 'combinations') {
+        const res = checkCombinations(rebuild, r);
+        console.log(`${describeSpace(res.space)}\nchecked ${res.checked} combination(s)${res.exhaustive ? ' (all)' : ' (pairwise cover + last + 20 random; a sampled pass does not prove every combination)'}`);
+        for (const i of res.issues) console.log(`FAIL  #${i.index} ${JSON.stringify(i.values)}  [${i.code}] ${i.message}`);
+        console.log(res.pass ? 'OK' : `FAILED: ${res.issues.length} issue(s)`);
+        process.exit(res.pass ? 0 : 1);
+      }
+      if (sub === 'variants') {
+        const res = checkVariants(rebuild, r);
+        if (!res.variants.length) console.log('no variants declared (Param.variant(name, { param: value }))');
+        for (const v of res.variants) console.log(`${v.ok ? 'ok  ' : 'FAIL'}  ${v.name} (?variant=${variantKey(v.name)})${v.problems.length ? `  ${v.problems.join('; ')}` : ''}${v.failedChecks.length ? `  failed: ${v.failedChecks.join(', ')}` : ''}`);
+        process.exit(res.pass ? 0 : 1);
+      }
       const sets: Record<string, any>[] = [];
       if (o.combinations) {
         // cartesian product of "A=1,2;B=x,y"
@@ -137,13 +167,14 @@ OK: ${sets.length} combination(s) passed`);
     }
     case 'video': {
       if (!r.ok) { console.error(summarizeBuild(r)); process.exit(1); }
-      const [w, h] = (o.size ?? '480x360').split('x').map(Number);
+      const cap = (r.scene as any)?.capture;
+      const [w, h] = o.size ? o.size.split('x').map(Number) : cap?.size ?? [480, 360];
       const out = o.out ?? `${proj.name}-turntable.gif`;
       if (o.recipe === 'build-up') {
         const chk = checkAssemblySteps(r);
         if (!chk.steps.length) { console.error('build-up needs assembly steps (.withAssemblyStep({ direction }))'); process.exit(1); }
         writeFileSync(out, renderBuildUpGif(r, chk.waves, chk.steps, { width: w, height: h, framesPerWave: o.frames ? Number(o.frames) : undefined }));
-      } else writeFileSync(out, renderTurntableGif(r, { width: w, height: h, frames: o.frames ? Number(o.frames) : undefined }));
+      } else writeFileSync(out, renderTurntableGif(r, { width: w, height: h, frames: o.frames ? Number(o.frames) : cap?.framesPerTurn, elevation: cap?.pitchDeg, fps: cap?.fps, holdFrames: cap?.holdFrames }));
       console.log(`wrote ${out}`);
       process.exit(0);
     }

@@ -12,6 +12,7 @@ import { Curve3D } from './curves';
 import { mat4, Mat4 } from './math';
 import type { Manifold } from 'manifold-3d';
 import { MeshRuns, SurfaceDef, surfaceTable } from './surfaces';
+import { normalizeScene } from './scene-config';
 import { assemblySteps, stepExplodeOffsets, AssemblyStepsInfo } from './assembly-steps';
 
 /** `runs` + `surfaces` let exporters rebuild exact surfaces (see kernel/surfaces.ts). */
@@ -199,7 +200,7 @@ export function runProject(project: Project, paramValues: Record<string, any> = 
   }
   const result: RunResult = {
     ok: !error,
-    objects, params: c.params, checks: c.checks, bom: c.bom, dims: c.dims, labels: c.labels, logs: c.logs, scene: c.scene,
+    objects, params: c.params, checks: c.checks, bom: c.bom, dims: c.dims, labels: c.labels, logs: c.logs, scene: normalizeScene(c.scene, objects, c.warnings),
     cutPlanes: c.cutPlanes, explode: c.explode, assemblies, error, feaStudies: live.feaStudies.map(feaInfo), warnings: [...c.warnings], timeMs: (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0,
   };
   if (!error) {

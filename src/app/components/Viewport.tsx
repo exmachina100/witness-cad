@@ -39,6 +39,10 @@ export interface ViewportHandle {
   setView(v: ViewName): void;
   fit(): void;
   clearMeasure(): void;
+  /** Move the camera to a scene() camera: position as [x,y,z] or a direction name like "front-right". */
+  setCamera(c: { position?: number[] | string; target?: number[]; up?: number[]; fov?: number; distance?: number }): void;
+  /** Frame the named objects. */
+  focus(names: string[]): void;
 }
 
 interface Props {
@@ -48,6 +52,14 @@ interface Props {
   onSelect?: (s: Selection | null) => void;
   onMeasure?: (d: number | null) => void;
   selected?: string | null;
+}
+
+function dirFromName(n: string): [number, number, number] | null {
+  const w = n.toLowerCase().split(/[-_\s]+/).filter(Boolean);
+  if (w.length === 1 && w[0] === 'iso') return [1, -1.2, 0.9];
+  const d: [number, number, number] = [0, 0, 0];
+  for (const x of w) { if (x === 'front') d[1]--; else if (x === 'back' || x === 'rear') d[1]++; else if (x === 'right') d[0]++; else if (x === 'left') d[0]--; else if (x === 'top') d[2]++; else if (x === 'bottom') d[2]--; else return null; }
+  return d[0] || d[1] || d[2] ? d : null;
 }
 
 const VIEW_DIRS: Record<ViewName, [number, number, number]> = {
@@ -306,12 +318,25 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport({ re
     } else { s.defaultLights.visible = true; s.customLights?.removeFromParent(); s.customLights = null; }
     if (sc.fog) s.scene.fog = sc.fog.density ? new THREE.FogExp2(sc.fog.color ?? '#888888', sc.fog.density) : new THREE.Fog(sc.fog.color ?? '#888888', sc.fog.near ?? 100, sc.fog.far ?? 5000);
     else s.scene.fog = null;
+    // environment preset: sky/ground light tint (no HDR maps are loaded)
+    s.envLight?.removeFromParent(); s.envLight = null;
+    if (sc.environment && !sc.lights?.length) {
+      const h = new THREE.HemisphereLight(new THREE.Color(sc.environment.sky), new THREE.Color(sc.environment.ground), sc.environment.intensity ?? 1);
+      s.scene.add(h); s.envLight = h;
+    }
+    // ground plane
+    s.groundMesh?.removeFromParent(); s.groundMesh = null;
+    if (sc.ground?.visible && !box.isEmpty()) {
+      const span = box.getSize(new THREE.Vector3()).length() * 4;
+      const gm = new THREE.Mesh(new THREE.PlaneGeometry(span, span), new THREE.MeshStandardMaterial({ color: sc.ground.color, roughness: 0.95, metalness: 0 }));
+      const c = box.getCenter(new THREE.Vector3());
+      gm.position.set(c.x, c.y, box.min.z - 0.01 + (sc.ground.offset ?? 0));
+      gm.receiveShadow = !!sc.ground.receiveShadow;
+      s.scene.add(gm); s.groundMesh = gm;
+    }
     // first build or explicit camera → frame
-    if (sc.camera?.position) {
-      s.persp.position.set(...(sc.camera.position as [number, number, number]));
-      if (sc.camera.target) s.controls.target.set(...(sc.camera.target as [number, number, number]));
-      if (sc.camera.fov) { s.persp.fov = sc.camera.fov; s.persp.updateProjectionMatrix(); }
-    } else if (!s.framed && !box.isEmpty()) { fitTo(box, 'iso'); s.framed = true; }
+    if (sc.camera?.position) applyCamera(sc.camera, box);
+    else if (!s.framed && !box.isEmpty()) { fitTo(box, 'iso'); s.framed = true; }
     const size = box.isEmpty() ? 100 : box.getSize(new THREE.Vector3()).length();
     s.markerSize = size / 150;
     // grid scale
@@ -323,6 +348,26 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport({ re
     applyTransforms();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result]);
+
+  const applyCamera = (c: any, box: THREE.Box3 = three.current.bounds) => {
+    const s = three.current;
+    if (!c) return;
+    const target = c.target ? new THREE.Vector3(c.target[0], c.target[1], c.target[2]) : box && !box.isEmpty() ? box.getCenter(new THREE.Vector3()) : new THREE.Vector3();
+    if (c.fov) { s.persp.fov = c.fov; }
+    if (typeof c.position === 'string') {
+      const d = dirFromName(c.position) ?? VIEW_DIRS.iso;
+      const r = box && !box.isEmpty() ? Math.max(1, box.getSize(new THREE.Vector3()).length() / 2) : 100;
+      const dist = c.distance ?? (r / Math.sin((s.persp.fov * Math.PI) / 360)) * 1.05;
+      s.persp.position.copy(target).addScaledVector(new THREE.Vector3(...d).normalize(), dist);
+    } else if (c.position) s.persp.position.set(c.position[0], c.position[1], c.position[2]);
+    s.persp.up.set(...((c.up ?? [0, 0, 1]) as [number, number, number]));
+    s.controls.target.copy(target);
+    const dist = s.persp.position.distanceTo(target);
+    s.persp.near = Math.max(1e-3, dist / 1000); s.persp.far = dist * 100;
+    s.persp.updateProjectionMatrix();
+    s.controls.update();
+    s.framed = true;
+  };
 
   const fitTo = (box: THREE.Box3, view: ViewName = 'iso') => {
     const s = three.current;
@@ -530,6 +575,17 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport({ re
       return done;
     },
     setView(v: ViewName) { fitTo(three.current.bounds, v); },
+    setCamera(c) { applyCamera(c); },
+    focus(names: string[]) {
+      const s = three.current, b = new THREE.Box3();
+      for (const it of s.objects ?? []) if (names.includes(it.obj.name)) b.union(new THREE.Box3().setFromObject(it.node));
+      if (!b.isEmpty()) {
+        const dir = s.persp.position.clone().sub(s.controls.target).normalize();
+        const r = Math.max(1, b.getSize(new THREE.Vector3()).length() / 2), dist = (r / Math.sin((s.persp.fov * Math.PI) / 360)) * 1.3;
+        const c = b.getCenter(new THREE.Vector3());
+        s.controls.target.copy(c); s.persp.position.copy(c).addScaledVector(dir, dist); s.controls.update();
+      }
+    },
     fit() { fitTo(three.current.bounds, 'iso'); },
     clearMeasure() { three.current.measurePts = []; three.current.drawMeasure?.(); },
   }), []);

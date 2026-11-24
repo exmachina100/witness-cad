@@ -7,6 +7,7 @@ import type { InspectMode } from '../components/Viewport';
 import type { WorkspaceCtx } from './Workspace';
 import { StrengthPanel } from './Strength';
 import { Icon } from './icons';
+import { combinationSpace, combinationIndex, combinationValues, variantKey } from '../../kernel/combinations';
 import { ago, fmtBytes, toast, blobToDataUrl } from './util';
 
 export interface MotionState { playing: null | { asm: string; kind: 'animation' | 'simulation'; name: string }; t: number; frames?: any[] }
@@ -183,16 +184,52 @@ export function ParamsPanel({ project, result, jointValues, setJoints }: Workspa
     for (const p of params) (g[p.opts?.group ?? (p.file && p.file !== project.entry ? p.file : '')] ??= []).push(p);
     return g;
   }, [params, project.entry]);
+  const space = useMemo(() => combinationSpace(params), [params]);
+  const variants = params.filter((p) => p.type === 'variant');
+  const current = useMemo(() => combinationIndex(space, Object.fromEntries(params.map((p) => [p.name, p.value]))), [space, params]);
+  const [typed, setTyped] = useState('');
+  const goCombo = (i: number) => { if (!space.total) return; const k = ((Math.round(i) % space.total) + space.total) % space.total; actions.setParams(project.id, { ...values, ...combinationValues(space, k) }); };
+  // ?variant=key in the URL selects a declared variant once per project
+  const appliedVariant = useRef<string | null>(null);
+  useEffect(() => {
+    const key = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('variant') : null;
+    if (!key || appliedVariant.current === project.id || !variants.length) return;
+    const v = variants.find((x) => variantKey(x.name) === key || x.name === key);
+    appliedVariant.current = project.id;
+    if (v) actions.setParams(project.id, { ...v.default }); else toast(`No variant "${key}"`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id, variants.length]);
   return (
     <div className="panel">
       <div className="panel-head"><h3 className="grow">Parameters</h3>
         {Object.keys(values).length > 0 && <button className="ghost" onClick={() => actions.setParams(project.id, {})}>Reset all</button>}
       </div>
+      {space.factors.length > 0 && (
+        <div className="field">
+          <label><span>Combination</span><span className="mono">{current == null ? 'off grid' : current.toLocaleString('en-US')} of {space.total.toLocaleString('en-US')}</span></label>
+          <div className="row" style={{ gap: 4 }}>
+            <button onClick={() => goCombo((current ?? 0) - 1)} aria-label="Previous combination">Prev</button>
+            <button onClick={() => goCombo((current ?? -1) + 1)} aria-label="Next combination">Next</button>
+            <button onClick={() => goCombo(Math.floor(Math.random() * space.total))}>Random</button>
+            <input className="mono" style={{ width: 80 }} placeholder="#" value={typed} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && typed.trim() !== '') { goCombo(Number(typed)); setTyped(''); } }} aria-label="Go to combination" />
+          </div>
+          <div className="muted" style={{ fontSize: 11 }}>{space.factors.map((f) => `${f.name} ${f.count}${f.autoStep ? ' (auto step)' : ''}`).join(' × ')}{space.held.length ? ` · Held: ${space.held.join(', ')}` : ''}</div>
+        </div>
+      )}
+      {variants.length > 0 && (
+        <div className="field">
+          <label><span>Variant</span></label>
+          <select value="" onChange={(e) => { const v = variants.find((x) => x.name === e.target.value); if (v) actions.setParams(project.id, { ...v.default }); }} aria-label="Variant">
+            <option value="">Choose a variant…</option>
+            {variants.map((v) => <option key={v.name} value={v.name}>{v.name}</option>)}
+          </select>
+        </div>
+      )}
       {params.length === 0 && <div className="muted">No parameters. Declare them in code, e.g. <code className="mono">Param.number("Width", 40, {'{ min: 10, max: 120 }'})</code>.</div>}
       {Object.entries(groups).map(([g, ps]) => (
         <div key={g} className="col">
           {g && <h3>{g}</h3>}
-          {ps.map((p) => <ParamControl key={p.name} p={p} onChange={(v) => set(p.name, v)} changed={values[p.name] !== undefined} />)}
+          {ps.filter((p) => p.type !== 'variant').map((p) => <ParamControl key={p.name} p={p} onChange={(v) => set(p.name, v)} changed={values[p.name] !== undefined} />)}
         </div>
       ))}
       {result?.assemblies.map((a) => a.joints.length > 0 && (
