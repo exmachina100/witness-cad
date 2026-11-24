@@ -2,9 +2,10 @@
 import { zlibSync } from 'fflate';
 import type { RunResult } from '../kernel/runtime';
 import { worldMeshes } from '../export/mesh';
+import { directionFromName } from '../kernel/scene-config';
 
-export type RenderView = 'iso' | 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
-const DIRS: Record<RenderView, [number, number, number]> = {
+export type RenderView = 'iso' | 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom' | (string & {});
+const DIRS: Record<'iso' | 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom', [number, number, number]> = {
   iso: [1, -1.2, 0.9], front: [0, -1, 0], back: [0, 1, 0], left: [-1, 0, 0], right: [1, 0, 0], top: [0, 0, 1], bottom: [0, 0, -1],
 };
 const norm = (v: number[]) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
@@ -12,6 +13,23 @@ const cross = (a: number[], b: number[]) => [a[1] * b[2] - a[2] * b[1], a[2] * b
 const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
 export type RenderOpts = { width?: number; height?: number; view?: RenderView; direction?: [number, number, number]; transforms?: Record<string, number[]>; background?: [number, number, number]; bounds?: { min: number[]; max: number[] } };
+/** Built-in view, a scene() named view, or a direction name such as "front-right". */
+export function viewDirection(result: RunResult, view: string = 'iso'): [number, number, number] {
+  if ((DIRS as any)[view]) return (DIRS as any)[view];
+  const v = (result as any).scene?.views?.[view];
+  if (v?.camera?.position) {
+    const p = v.camera.position;
+    if (typeof p === 'string') return directionFromName(p) ?? DIRS.iso;
+    const t = v.camera.target ?? sceneCenter(result);
+    return [p[0] - t[0], p[1] - t[1], p[2] - t[2]];
+  }
+  return directionFromName(view) ?? DIRS.iso;
+}
+function sceneCenter(result: RunResult): number[] {
+  const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+  for (const o of result.objects) { const b = o.stats?.bbox; if (!b) continue; for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], b.min[k]); mx[k] = Math.max(mx[k], b.max[k]); } }
+  return Number.isFinite(mn[0]) ? mn.map((v, k) => (v + mx[k]) / 2) : [0, 0, 0];
+}
 export function renderPng(result: RunResult, o: RenderOpts = {}): Uint8Array {
   const r = renderRgb(result, o);
   return encodePng(r.rgb, r.width, r.height);
@@ -27,7 +45,7 @@ export function renderRgb(result: RunResult, o: RenderOpts = {}): { rgb: Uint8Ar
   const depth = new Float32Array(W * H).fill(Infinity);
 
   // camera basis: looking along -d, Z up (Y up for top/bottom views)
-  const d = norm(o.direction ?? DIRS[o.view ?? 'iso']);
+  const d = norm(o.direction ?? viewDirection(result, o.view));
   const upHint = Math.abs(d[2]) > 0.95 ? [0, 1, 0] : [0, 0, 1];
   const right = norm(cross(upHint, d)), up = cross(d, right);
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;

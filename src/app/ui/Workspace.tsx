@@ -22,6 +22,7 @@ export function Workspace({ projectId }: { projectId: string }) {
   const vp = useRef<ViewportHandle>(null);
 
   const [result, setResult] = useState<RunResult | null>(null);
+  const [journey, setJourney] = useState<{ name: string; step: number } | null>(null);
   const [building, setBuilding] = useState(false);
   const [panel, setPanel] = useState<string>('files');
   const [showLeft, setShowLeft] = useState(true);
@@ -198,6 +199,23 @@ export function Workspace({ projectId }: { projectId: string }) {
   const passed = result?.checks.filter((c) => c.pass).length ?? 0;
   const failed = (result?.checks.length ?? 0) - passed;
   const views: ViewName[] = ['top', 'front', 'right', 'left', 'iso', 'back', 'bottom'];
+  const sceneViews = Object.values<any>(result?.scene?.views ?? {});
+  const journeys = Object.values<any>(result?.scene?.journeys ?? {});
+  const goStep = (j: any, i: number) => {
+    const st = j.steps[i]; if (!st) return;
+    setJourney({ name: j.name, step: i });
+    if (st.camera) vp.current?.setCamera(st.camera);
+    if (st.resolvedFocusPath?.length) vp.current?.focus(st.resolvedFocusPath);
+  };
+  useEffect(() => {
+    const sc = result?.scene;
+    if (sc?.camera?.type === 'orthographic' && !opts.ortho) setOpts({ ...opts, ortho: true });
+    const auto = Object.values<any>(sc?.journeys ?? {}).find((j) => j.behavior === 'auto' && j.valid);
+    if (auto && !journey) setTimeout(() => goStep(auto, auto.startsAt ?? 0), 50);
+    if (journey && !sc?.journeys?.[journey.name]) setJourney(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result]);
+  const activeJourney = journey ? result?.scene?.journeys?.[journey.name] : null;
 
   return (
     <div className="ws">
@@ -251,6 +269,30 @@ export function Workspace({ projectId }: { projectId: string }) {
             <div className="viewcube" aria-label="View presets">
               {views.map((v) => <button key={v} onClick={() => vp.current?.setView(v)}>{v[0].toUpperCase() + v.slice(1)}</button>)}
             </div>
+            {(sceneViews.length > 0 || journeys.length > 0) && (
+              <div className="scene-nav">
+                {sceneViews.length > 0 && <select aria-label="Named views" value="" onChange={(e) => { const v = result?.scene?.views?.[e.target.value]; if (v) vp.current?.setCamera(v.camera); }}>
+                  <option value="">Views…</option>
+                  {sceneViews.map((v) => <option key={v.name} value={v.name}>{v.title ?? v.name}</option>)}
+                </select>}
+                {journeys.length > 0 && <select aria-label="Journeys" value={journey?.name ?? ''} onChange={(e) => { const j = result?.scene?.journeys?.[e.target.value]; if (j) goStep(j, j.startsAt ?? 0); else setJourney(null); }}>
+                  <option value="">Journeys…</option>
+                  {journeys.map((j) => <option key={j.name} value={j.name} disabled={!j.valid}>{j.title}{j.valid ? '' : ' (invalid)'}</option>)}
+                </select>}
+              </div>
+            )}
+            {activeJourney && journey && (() => {
+              const st = activeJourney.steps[journey.step];
+              return <div className="journey-card">
+                <div className="row"><b className="grow">{activeJourney.title}</b><span className="muted">{journey.step + 1} / {activeJourney.steps.length}</span><button className="ghost" onClick={() => setJourney(null)} aria-label="Close journey"><Icon name="x" size={12} /></button></div>
+                {st?.title && <div style={{ marginTop: 4, fontWeight: 600 }}>{st.title}</div>}
+                {st?.caption && <div className="muted" style={{ marginTop: 2 }}>{st.caption}</div>}
+                <div className="row" style={{ marginTop: 8 }}>
+                  <button disabled={journey.step === 0} onClick={() => goStep(activeJourney, journey.step - 1)}>Back</button>
+                  <button disabled={journey.step >= activeJourney.steps.length - 1} onClick={() => goStep(activeJourney, journey.step + 1)}>Next</button>
+                </div>
+              </div>;
+            })()}
             {err && (
               <div className="error-banner" role="alert">
                 {err.file ? `${err.file}${err.line ? `:${err.line}` : ''}  ` : ''}{err.code ? `[${err.code}] ` : ''}{err.message}

@@ -14,7 +14,7 @@ Status: [ ] open, [x] done, [~] done with a documented difference.
 - [x] ShapeSplitResult (split → inside/outside), ShapeSurfaceSplitResult (splitBySurface → positive/negative)
 - [x] Transform instances: mul, translate, rotateAxis, rotateX/Y/Z, inverse, point, vector, toArray; Transform.scale
 - [x] Path2DParamValue.closed/toStroke; Spline2DParamValue closed/degree/nodes/toPolyline/toCurveOnYZ/toCurveSegmentsOn*/toPathOnXY/toPathOnYZ
-- [ ] Param number auto step (1/100 of range) and combination indexing; `{ combination: false }`
+- [x] Param number auto step (1/100 of range) and combination indexing; `{ combination: false }`
 
 ## B. Sketch API
 - [x] Point2D, Line2D (+ statics), Circle2D, Rectangle2D (+ statics, side, vertex, diagonals, toSketch, extrude)
@@ -43,12 +43,12 @@ Status: [ ] open, [x] done, [~] done with a documented difference.
 - [x] WoodBoard class (shape, width, height, thickness, grain, species, material, cut, transforms)
 
 ## F. Viewport and scenes
-- [ ] scene(): views, journeys, environment presets, fog, capture, jointOverlay, postProcessing accepted (inactive, as in ForgeCAD)
-- [ ] Named views and journeys in the viewer
+- [x] scene(): views, journeys, environment presets, fog, capture, jointOverlay, postProcessing accepted (inactive, as in ForgeCAD)
+- [x] Named views and journeys in the viewer
 
 ## G. Variants
-- [ ] Combination index over all params: `run --combination N`, `check combinations` (all ≤100, else pairwise + last + 20 random), `check variants`
-- [ ] `?variant=` URL selection; Combination control in the Params panel
+- [x] Combination index over all params: `run --combination N`, `check combinations` (all ≤100, else pairwise + last + 20 random), `check variants`
+- [x] `?variant=` URL selection; Combination control in the Params panel
 
 ## H. Agent / MCP / hosted API
 - [ ] maxCredits / maxDurationSeconds / creditsUsed on checks (local: duration cap, credits reported as 0)

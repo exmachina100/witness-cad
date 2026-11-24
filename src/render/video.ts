@@ -5,7 +5,7 @@ import { renderRgb, RenderOpts } from './raster';
 
 const gif: any = (gifNs as any).GIFEncoder ? gifNs : (gifNs as any).default;
 
-export function renderTurntableGif(result: RunResult, o: RenderOpts & { frames?: number; elevation?: number; fps?: number } = {}): Uint8Array {
+export function renderTurntableGif(result: RunResult, o: RenderOpts & { frames?: number; elevation?: number; fps?: number; holdFrames?: number } = {}): Uint8Array {
   const n = Math.max(4, Math.min(120, o.frames ?? 36)), el = ((o.elevation ?? 25) * Math.PI) / 180, delay = Math.round(1000 / (o.fps ?? 15));
   const enc = gif.GIFEncoder();
   let palette: number[][] | null = null;
@@ -16,7 +16,7 @@ export function renderTurntableGif(result: RunResult, o: RenderOpts & { frames?:
     for (let p = 0; p < width * height; p++) { rgba[p * 4] = rgb[p * 3]; rgba[p * 4 + 1] = rgb[p * 3 + 1]; rgba[p * 4 + 2] = rgb[p * 3 + 2]; rgba[p * 4 + 3] = 255; }
     if (!palette) palette = gif.quantize(rgba, 256);
     const index = gif.applyPalette(rgba, palette);
-    enc.writeFrame(index, width, height, { palette: i === 0 ? palette : undefined, delay, repeat: 0 });
+    enc.writeFrame(index, width, height, { palette: i === 0 ? palette : undefined, delay: i === 0 && o.holdFrames ? delay * (1 + o.holdFrames) : delay, repeat: 0 });
   }
   enc.finish();
   return enc.bytes();
