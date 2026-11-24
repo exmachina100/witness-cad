@@ -342,6 +342,40 @@ npm run cli -- check path/to/project --combinations "Width=60,120;Height=6,12"  
 npm run cli -- check path/to/project --variants variants.json   # [{ "Width": 60 }, ...]
 npm run cli -- export path/to/project --format dxf --view top   # or svg, dxf-section --at 5
 npm run cli -- video path/to/project --out turntable.gif
+npm run cli -- video path/to/project --recipe build-up       # assembly build-up along the steps
+npm run cli -- run path/to/project --combination 17          # combination index; 0 = all defaults
+npm run cli -- run path/to/project --variant long_reach      # a Param.variant
+npm run cli -- check combinations path/to/project            # every combination up to 100, else a pairwise sample
+npm run cli -- check variants path/to/project                # declaration problems and builds
+npm run cli -- sim mechanism path/to/project --joint handle=60 --min-torque-margin-pct 20
+npm run cli -- export path/to/project --format guide         # build guide PDF from assembly steps
 \`\`\`
 A project path is a folder with \`main.forge.js\` (and any helper files) or a single \`.forge.js\` file.` },
+  { id: 'steps-variants-scenes', title: 'Assembly steps, variants and scenes', body: `# Assembly steps, variants and scenes
+
+## Assembly steps
+Give each part after the base a straight removal direction:
+\`\`\`js
+const shaft = cylinder(30, 4.9).withAssemblyStep({ direction: 'z', title: 'Insert the shaft', note: 'Grease first' });
+const motor = group({ name: 'body', shape: body }, { name: 'gear', shape: gear.withAssemblyStep({ direction: 'z' }) })
+  .withAssemblyStep({ direction: 'x', title: 'Slide the motor in' });   // a sub-assembly moves in as one unit
+return [base, shaft, motor, cap.withInstructionPage({ title: 'Before you start', text: 'Lay out the parts.' })];
+\`\`\`
+Directions are 'x', 'y', 'z', '-x', … or [x, y, z] and turn with later transforms. Steps follow listing order; parts without a step are the base. The Explode slider stacks parts along their steps, \`check_assembly\` reports ASSEMBLY.STEP.PASSES_THROUGH when a removal hits a placed part (ASSEMBLY.NO_STEPS when there are none), the **guide** export and the manufacturing package contain instructions.pdf, and \`video --recipe build-up\` animates the build.
+
+## Combinations and variants
+Every bool (2 values), choice (one per option) and number (one per step from min to max, counted from the default) is a factor of the combination index. Combination 0 is all defaults and the first declared parameter changes fastest. Numbers without a step get about 1/100 of their range (shown as auto step). \`{ combination: false }\` holds a parameter out. \`Param.variant("Long reach", { Width: 60 })\` declares a named variant, opened with \`?variant=long_reach\`. The Params panel has Combination (previous, next, random, typed) and Variant controls.
+
+## scene()
+\`\`\`js
+scene({
+  camera: { position: 'front-right', fov: 35 },          // or [x, y, z]; type: 'orthographic'
+  views: { hero: { position: [120, -140, 90], target: [0, 0, 20] } },
+  journeys: { tour: { title: 'Tour', behavior: 'auto', steps: [{ id: 'lid', focus: 'lid', caption: 'The lid' }, { id: 'hero', camera: 'hero' }] } },
+  environment: { preset: 'studio' },                     // studio, sunset, dawn, warehouse, forest, apartment, city, park, lobby, night
+  ground: { visible: true }, fog: { near: 200, far: 2000 },
+  capture: { framesPerTurn: 36, pitchDeg: 25, fps: 15, size: [640, 480] },
+});
+\`\`\`
+Named views appear in the viewer's Views menu and work with \`render --view hero\`; journeys get a step player. \`postProcessing\` and \`jointOverlay\` are accepted but inactive, as in ForgeCAD.` },
 ];

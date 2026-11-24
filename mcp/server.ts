@@ -27,6 +27,9 @@ import { zlibSync, strToU8 } from 'fflate';
 import { readDoc, searchDocs, DOCS_INDEX } from '../src/docs';
 import { summarizeBuild } from '../src/app/agent-summary';
 import { EXAMPLES } from '../src/app/examples';
+import { recordHistory, readHistory, summarizeArgs, idempotencyGet, idempotencySet } from './history';
+import { proceduralImage, PROCEDURAL_KINDS } from './images';
+import { handleApi } from './api';
 
 projectResolver.fn = (alias) => store.byAlias(alias);
 
@@ -60,6 +63,12 @@ function solidsByName(result: RunResult, transforms?: Record<string, number[]>) 
 const text = (s: string) => ({ content: [{ type: 'text' as const, text: s }] });
 const json = (v: any) => text(JSON.stringify(v, null, 2));
 const fail = (e: any) => ({ content: [{ type: 'text' as const, text: `error: ${e?.message ?? e}` }], isError: true });
+function idempotent(toolName: string, project: string, requestId: string | undefined, fn: () => any) {
+  if (requestId) { const hit = idempotencyGet(toolName, project, requestId); if (hit) return json({ ...hit, replayed: true }); }
+  const v = fn();
+  if (requestId) idempotencySet(toolName, project, requestId, v);
+  return json(v);
+}
 const wrap = <A,>(fn: (a: A) => Promise<any> | any) => async (a: A) => { try { return await fn(a); } catch (e) { return fail(e); } };
 
 const jobs = new Map<string, { id: string; status: 'done' | 'failed'; kind: string; path?: string; bytes?: number; error?: string; createdAt: number }>();
@@ -72,7 +81,26 @@ const params = z.record(z.string(), z.any()).optional().describe('Parameter over
 // ------------------------------------------------------------------ server
 export function createWitnessServer() {
   const server = new McpServer({ name: 'witness-cad', version: '1.0.0' });
-  const tool = (name: string, description: string, inputSchema: any, fn: (a: any) => any) => server.registerTool(name, { description, inputSchema }, wrap(fn) as any);
+  // Every tool takes run limits (max_credits, max_duration_seconds) and reports creditsUsed (always 0 locally),
+  // and every call is appended to the command history.
+  const limits = {
+    max_credits: z.number().optional().describe('Credit cap for this call. Local runs cost 0 credits, so any cap >= 0 passes.'),
+    max_duration_seconds: z.number().optional().describe('Stop waiting and fail after this many seconds'),
+  };
+  const tool = (name: string, description: string, inputSchema: any, fn: (a: any) => any) => server.registerTool(name, { description, inputSchema: { ...inputSchema, ...limits } }, (async (a: any) => {
+    const t0 = Date.now();
+    const { max_credits, max_duration_seconds, ...args } = a ?? {};
+    let out: any;
+    if (max_credits != null && max_credits < 0) out = fail(new Error('max_credits must be >= 0'));
+    else {
+      const run = wrap(fn)(args);
+      out = max_duration_seconds ? await Promise.race([run, new Promise((res) => setTimeout(() => res(fail(new Error(`stopped after max_duration_seconds=${max_duration_seconds}`))), max_duration_seconds * 1000))]) : await run;
+    }
+    const durationMs = Date.now() - t0;
+    recordHistory({ tool: name, project: args.project, draft: args.draft, ok: !out?.isError, durationMs, creditsUsed: 0, at: new Date(t0).toISOString(), args: summarizeArgs(args) });
+    if (out?.content) out.content.push({ type: 'text', text: `creditsUsed: 0 · durationMs: ${durationMs}` });
+    return out;
+  }) as any);
 
   tool('read_docs', `Read a Witness CAD documentation page. Pages: ${DOCS_INDEX.map((d) => d.id).join(', ')}. Read "welcome" and "core" before writing models.`,
     { page: z.string() }, ({ page }) => text(readDoc(page) ?? `no page "${page}"`));
@@ -93,14 +121,15 @@ export function createWitnessServer() {
   tool('list_versions', 'List saved versions of a project.', { project },
     ({ project }) => { const m = readMeta(project); return json(m.versions.map((v) => ({ id: v.id, name: v.name, note: v.note, current: v.id === m.currentVersion, created: new Date(v.createdAt).toISOString(), files: Object.keys(v.files).length }))); });
   tool('create_draft', 'Create a draft branch from a version (default: current) or copy another draft (from_draft). Edit the draft with the draft id, then merge_draft.',
-    { project, name: z.string(), base_version: z.string().optional(), from_draft: z.string().optional().describe('Start from this draft\'s files instead of a version'), brief: z.string().optional().describe('What the draft should achieve') },
-    ({ project, name, base_version, from_draft, brief }) => {
+    { project, name: z.string(), base_version: z.string().optional(), from_draft: z.string().optional().describe('Start from this draft\'s files instead of a version'), from_draft_id: z.string().optional().describe('Alias of from_draft'), brief: z.string().optional().describe('What the draft should achieve'), request_id: z.string().optional().describe('Idempotency key: repeating a request_id returns the first result') },
+    ({ project, name, base_version, from_draft, from_draft_id, brief, request_id }) => idempotent('create_draft', project, request_id, () => {
+      from_draft = from_draft ?? from_draft_id;
       const src = from_draft ? readMeta(project).drafts.find((x) => x.id === from_draft) : null;
       if (from_draft && !src) throw new Error(`no draft "${from_draft}"`);
       const d = store.createDraft(project, name, src?.baseVersion ?? base_version, brief);
       if (src) for (const [path, content] of Object.entries(src.files)) store.write(project, path, content, d.id);
-      return json({ draft: d.id, baseVersion: d.baseVersion, from: from_draft });
-    });
+      return { draft: d.id, baseVersion: d.baseVersion, from: from_draft };
+    }));
   tool('list_drafts', 'List open drafts of a project.', { project },
     ({ project }) => json(readMeta(project).drafts.map((d) => ({ id: d.id, name: d.name, brief: d.brief, baseVersion: d.baseVersion, files: Object.keys(d.files) }))));
   tool('merge_draft', 'Merge a draft into the project as a new saved version.', { project, draft: z.string(), name: z.string().optional() },
@@ -124,8 +153,19 @@ export function createWitnessServer() {
       store.write(project, path, f.replace(old_string, new_string), draft);
       return text(`edited ${path}`);
     });
-  tool('save_version', 'Save the working copy (or a draft) as a named version.', { project, name: z.string(), note: z.string().optional(), draft },
-    ({ project, name, note, draft }) => { const v = store.saveVersion(project, name, note, draft); return json({ version: v.id }); });
+  tool('save_version', 'Save the working copy (or a draft) as a named version.', { project, name: z.string(), note: z.string().optional(), draft, request_id: z.string().optional().describe('Idempotency key: repeating a request_id returns the first result') },
+    ({ project, name, note, draft, request_id }) => idempotent('save_version', project, request_id, () => ({ version: store.saveVersion(project, name, note, draft).id })));
+  tool('read_command_history', 'Recent MCP calls (tool, project, ok, duration, credits used), newest first.', { project: z.string().optional(), limit: z.number().optional() },
+    ({ project, limit }) => json(readHistory(project, limit ?? 50)));
+  tool('generate_image_asset', 'Generate an image asset (PNG) for textures, decals or reference boards. No image model is configured, so assets are procedural: kinds wood, brushed_metal, carbon_fiber, noise, checker, gradient, stripes, knurl. Saved to the project\'s exports folder (and optionally as a project file).',
+    { project, prompt: z.string().optional().describe('Description; keywords pick a kind and colours when kind is omitted'), kind: z.enum(PROCEDURAL_KINDS).optional(), width: z.number().optional(), height: z.number().optional(), colors: z.array(z.string()).optional(), seed: z.number().optional(), save_as: z.string().optional().describe('Also store in the project as this path (data URL in a .txt/.json is not needed: written as a binary in exports)') },
+    ({ project, prompt, kind, width, height, colors, seed, save_as }) => {
+      const img = proceduralImage({ prompt, kind, width: Math.min(width ?? 512, 2048), height: Math.min(height ?? 512, 2048), colors, seed });
+      const name = (save_as ?? `${img.kind}-${Date.now()}.png`).replace(/[^\w.-]+/g, '_');
+      const path = join(store.exportsDir(project), name.endsWith('.png') ? name : `${name}.png`);
+      writeFileSync(path, img.png);
+      return { content: [{ type: 'image' as const, data: Buffer.from(img.png).toString('base64'), mimeType: 'image/png' }, { type: 'text' as const, text: `saved ${path} (${img.kind}, ${img.width}x${img.height}, procedural; no image model configured)` }] };
+    });
 
   tool('build_model', 'Build the model. Returns errors with file/line, warnings, verify checks, params, objects with size/volume, assemblies and BOM.',
     { project, draft, version: z.string().optional(), params },
@@ -476,7 +516,8 @@ async function main() {
   }
   const port = Number(process.argv[i + 1] ?? 8787);
   createServer(async (req, res) => {
-    if (!req.url?.startsWith('/mcp')) { res.writeHead(404).end('Witness CAD MCP: POST /mcp'); return; }
+    if (req.url?.startsWith('/api/v1')) { await handleApi(req, res); return; }
+    if (!req.url?.startsWith('/mcp')) { res.writeHead(404).end('Witness CAD: POST /mcp (MCP) or /api/v1 (HTTP API, see /api/v1/openapi.json)'); return; }
     const server = createWitnessServer();
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on('close', () => { transport.close(); server.close(); });

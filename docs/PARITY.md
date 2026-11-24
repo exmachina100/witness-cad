@@ -51,7 +51,14 @@ Status: [ ] open, [x] done, [~] done with a documented difference.
 - [x] `?variant=` URL selection; Combination control in the Params panel
 
 ## H. Agent / MCP / hosted API
-- [ ] maxCredits / maxDurationSeconds / creditsUsed on checks (local: duration cap, credits reported as 0)
-- [ ] requestId idempotency on create_draft/save_version; create_draft fromDraftId; MCP command history
-- [ ] generate_image_asset (procedural texture generator when no image model is configured)
-- [ ] Hosted HTTP API (/api/v1): capabilities, openapi.json, output-quotes, output-runs (+items, cancel), artifact download, capture/video quotes, upload sessions
+- [x] maxCredits / maxDurationSeconds / creditsUsed on checks (local: duration cap, credits reported as 0)
+- [x] requestId idempotency on create_draft/save_version; create_draft fromDraftId; MCP command history
+- [x] generate_image_asset (procedural texture generator when no image model is configured)
+- [x] Hosted HTTP API (/api/v1): capabilities, openapi.json, output-quotes, output-runs (+items, cancel), artifact download, capture/video quotes, upload sessions
+
+## Differences that remain (cannot be matched exactly)
+- **AI image models**: ForgeCAD's `generate_image_asset` calls a hosted image model. Witness CAD has no image-model key, so it generates procedural textures (wood, brushed metal, carbon fibre, noise, checker, gradient, stripes, knurl).
+- **Hosted cloud and credits**: ForgeCAD runs outputs on its own cloud and bills credits. Witness CAD runs the same `/api/v1` routes and MCP limits locally; every quote and run reports 0 credits, and runs execute synchronously.
+- **Exact kernel**: ForgeCAD uses an exact B-rep kernel. Witness CAD is mesh-based (Manifold) with exact surfaces rebuilt on STEP export, so very fine surface features (G2 blends, surface curvature analysis) are numerical approximations on sampled NURBS.
+- **Environment panoramas**: environment presets set sky/ground lighting and a background gradient; HDR panorama images are not loaded.
+- **Assembly step motions**: as in ForgeCAD, each step is one straight move; rotations and corner paths are not supported.
