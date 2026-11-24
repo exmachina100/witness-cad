@@ -18,13 +18,16 @@ import { constrainedSketch } from './constraints';
 import { Import } from './importers';
 import './detail';
 import { Laser, SheetMetal, sheetMetal } from './fabrication';
-import { Surface, SurfaceBody, SurfaceSheet, Blend, Analysis, Thickness, Sculpt, Product, CarrierNS, SurfaceMembers } from './surfacing';
+import { SurfaceSheet } from './surfacing';
+import { Surface, SurfaceBodyFn, Blend, Analysis, Thickness, Sculpt, Product, Carrier as CarrierNS, SurfaceMembers } from './surface-api';
 import { mat4, v3 } from './math';
 import { ctx } from './context';
 import { woodBoard, woodDado, woodMortiseAndTenon, WoodBoard } from './parity-lib';
 import { installCoreParity, wrapTransformNamespace, Point2D, Line2D, Circle2D, Rectangle2D, TransformMatrix } from './parity';
+import { installCurveParity } from './parity-curves';
 
 installCoreParity();
+installCurveParity();
 
 export const Transform = wrapTransformNamespace({
   identity: () => mat4.identity(),
@@ -69,7 +72,7 @@ export function buildGlobals(): Record<string, any> {
     gearPair: lib.gearPair, bevelGearPair: lib.bevelGearPair, faceGearPair: lib.faceGearPair, gearRatio: lib.gearRatio, rackRatio: lib.rackRatio,
     planetaryRatio: lib.planetaryRatio, sectorGear: lib.sectorGear, gearBodies: lib.gearBodies, driveWheel: lib.driveWheel, readDriveWheelMeta: lib.readDriveWheelMeta,
     hexagon: lib.hexagon, metric, lib: libNamespace,
-    Surface, SurfaceBody, SurfaceSheet, Blend, Analysis, Thickness, Sculpt, Product, Carrier: CarrierNS, SurfaceMembers,
+    Surface, SurfaceBody: SurfaceBodyFn, SurfaceSheet, Blend, Analysis, Thickness, Sculpt, Product, Carrier: CarrierNS, SurfaceMembers,
     Import, Points, ANCHOR3D_NAMES, SHEET_METAL_EDGES, route, Optics, SimReady,
     // math helpers
     Transform, Vec3: v3, deg: (r: number) => (r * 180) / Math.PI, rad: (d: number) => (d * Math.PI) / 180,

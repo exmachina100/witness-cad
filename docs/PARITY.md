@@ -21,15 +21,15 @@ Status: [ ] open, [x] done, [~] done with a documented difference.
 - [x] Sketch.cross
 
 ## C. Curves and surfaces
-- [ ] Curve3D props (points, tension); NurbsCurve3D props (controlPoints, weights, knots, degree); helix props (radius, pitch, turns, height, startAngle, clockwise, ports)
-- [ ] Sheet: edges and curves, curveAlong*/pathAlong*, pointAt/normalAt/frameAt/framePerpendicularTo*, curvatureAt, thickenInsideBy, matchEdge, surface (NurbsSurface)
-- [ ] NurbsSurface: controlGrid, weightsGrid, knots, degrees, nU/nV, domain, pointAt, normalAt, derivativesAt
-- [ ] CurveNetBuilder (Surface.Net/BoundaryNet builder form), MatchEdgeBuilder (toG0/1/2), Curve.Bridge builder (bulge, g0/g1/g2)
-- [ ] SurfaceComplexBuilder (patch, join, bridge, parts, toGroup, surfaceParts, toSurfaceGroup, toSolid, toSewnSolid, report)
-- [ ] Sculpt control cage: faces, movePoint, setPoint, editPoints, toShape
-- [ ] Product builders: skin(name).axis().stations().build(), station(name).oval()/superEllipse()/roundedRect()/circle()/custom(), panel(name) builder, ribbon(name) builder, Product.profiles.*
-- [ ] Carriers: Carrier.cylinder/plane builders (diameter, height, size, anchor, path, pointAt, frameAt, mirror*, bounds, offset); ProductSkinCarrier side transitions
-- [ ] SurfaceBody(name) builder: carrier, member (plate/band/at/size/path/section/cap/slot/cutout/anchorAt/features/profile/mirrorOf), join, autoJoinAtSharedAnchors, build, buildWithDiagnostics, buildDebug; SurfaceMembers.counterbore/roundedSlot builders
+- [x] Curve3D props (points, tension); NurbsCurve3D props (controlPoints, weights, knots, degree); helix props (radius, pitch, turns, height, startAngle, clockwise, ports)
+- [x] Sheet: edges and curves, curveAlong*/pathAlong*, pointAt/normalAt/frameAt/framePerpendicularTo*, curvatureAt, thickenInsideBy, matchEdge, surface (NurbsSurface)
+- [x] NurbsSurface: controlGrid, weightsGrid, knots, degrees, nU/nV, domain, pointAt, normalAt, derivativesAt
+- [x] CurveNetBuilder (Surface.Net/BoundaryNet builder form), MatchEdgeBuilder (toG0/1/2), Curve.Bridge builder (bulge, g0/g1/g2)
+- [x] SurfaceComplexBuilder (patch, join, bridge, parts, toGroup, surfaceParts, toSurfaceGroup, toSolid, toSewnSolid, report)
+- [x] Sculpt control cage: faces, movePoint, setPoint, editPoints, toShape
+- [x] Product builders: skin(name).axis().stations().build(), station(name).oval()/superEllipse()/roundedRect()/circle()/custom(), panel(name) builder, ribbon(name) builder, Product.profiles.*
+- [x] Carriers: Carrier.cylinder/plane builders (diameter, height, size, anchor, path, pointAt, frameAt, mirror*, bounds, offset); ProductSkinCarrier side transitions
+- [x] SurfaceBody(name) builder: carrier, member (plate/band/at/size/path/section/cap/slot/cutout/anchorAt/features/profile/mirrorOf), join, autoJoinAtSharedAnchors, build, buildWithDiagnostics, buildDebug; SurfaceMembers.counterbore/roundedSlot builders
 - [x] Loft.pathOnXz
 
 ## D. Assemblies and mechanisms
