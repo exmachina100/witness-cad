@@ -92,7 +92,7 @@ function catmull3(points: Vec3[], closed: boolean): (t: number) => Vec3 {
   };
 }
 
-function hermite(p0: Vec3, m0: Vec3, p1: Vec3, m1: Vec3) {
+export function hermite(p0: Vec3, m0: Vec3, p1: Vec3, m1: Vec3) {
   return (t: number): Vec3 => {
     const t2 = t * t, t3 = t2 * t;
     const h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t, h01 = -2 * t3 + 3 * t2, h11 = t3 - t2;
@@ -248,7 +248,7 @@ function resampleLoop(loop: Vec2[], n: number): Vec2[] {
 }
 
 /** Outer loop of a sketch, CCW, starting at the vertex nearest angle 0 from its centroid. */
-function outerLoop(s: Sketch, n: number): Vec2[] {
+export function outerLoop(s: Sketch, n: number): Vec2[] {
   const polys = s.cs.toPolygons();
   let best = polys[0], ba = -Infinity;
   for (const p of polys) {

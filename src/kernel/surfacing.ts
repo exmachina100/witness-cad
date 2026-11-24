@@ -12,7 +12,7 @@ import { NurbsSurface, evalSurface, interpolateSurface, domainU, domainV } from 
 import { ctx } from './context';
 
 type F = (u: number, v: number) => Vec3;
-type Edge = 'u0' | 'u1' | 'v0' | 'v1';
+export type Edge = 'u0' | 'u1' | 'v0' | 'v1';
 const TAU = Math.PI * 2;
 
 // ---------------------------------------------------------------- curves in
@@ -28,7 +28,7 @@ export function curvePoints(c: any, n = 48): Vec3[] {
   else throw new ForgeError('SURFACE.BAD_CURVE', 'expected points, a Curve, or a sketch');
   return resample(pts, n);
 }
-function resample(pts: Vec3[], n: number): Vec3[] {
+export function resample(pts: Vec3[], n: number): Vec3[] {
   if (pts.length < 2) throw new ForgeError('SURFACE.BAD_CURVE', 'a curve needs at least two points');
   const cum = [0];
   for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + v3.dist(pts[i - 1], pts[i]));
@@ -43,7 +43,7 @@ function resample(pts: Vec3[], n: number): Vec3[] {
   }
   return out;
 }
-const at = (pts: Vec3[], t: number): Vec3 => { const x = Math.max(0, Math.min(1, t)) * (pts.length - 1); const i = Math.min(pts.length - 2, Math.floor(x)); return v3.lerp(pts[i], pts[i + 1], x - i); };
+export const at = (pts: Vec3[], t: number): Vec3 => { const x = Math.max(0, Math.min(1, t)) * (pts.length - 1); const i = Math.min(pts.length - 2, Math.floor(x)); return v3.lerp(pts[i], pts[i + 1], x - i); };
 
 // ---------------------------------------------------------------- sheets
 export class SurfaceSheet {
@@ -121,7 +121,7 @@ export class SurfaceSheet {
 function curveLen(s: SurfaceSheet, dir: 'u' | 'v') { let L = 0; let p = dir === 'u' ? s.f(0, 0.5) : s.f(0.5, 0); for (let i = 1; i <= 32; i++) { const q = dir === 'u' ? s.f(i / 32, 0.5) : s.f(0.5, i / 32); L += v3.dist(p, q); p = q; } return L; }
 
 /** Build a closed manifold from a sheet and a per-sample thickness function. */
-function thickenVar(s: SurfaceSheet, t: (u: number, v: number) => number, o: { side?: 'out' | 'in' | 'both'; nu?: number; nv?: number } = {}): Shape {
+export function thickenVar(s: SurfaceSheet, t: (u: number, v: number) => number, o: { side?: 'out' | 'in' | 'both'; nu?: number; nv?: number } = {}): Shape {
   const nu = o.nu ?? s.opts.nu ?? 32, nv = o.nv ?? s.opts.nv ?? 32;
   const cu = !!s.opts.closedU, cv = !!s.opts.closedV;
   const side = o.side ?? 'out';
@@ -143,7 +143,7 @@ function thickenVar(s: SurfaceSheet, t: (u: number, v: number) => number, o: { s
   if (!cv) for (let i = 0; i < nu; i++) { quad(idx(0, i, 0), idx(0, i + 1, 0), idx(1, i + 1, 0), idx(1, i, 0)); quad(idx(0, i, nv), idx(1, i, nv), idx(1, i + 1, nv), idx(0, i + 1, nv)); }
   return meshSolid(verts, tris, s.name);
 }
-function meshSolid(verts: number[], tris: number[], name?: string): Shape {
+export function meshSolid(verts: number[], tris: number[], name?: string): Shape {
   const k = K();
   const build = () => { const mesh = new k.Mesh({ numProp: 3, vertProperties: new Float32Array(verts), triVerts: new Uint32Array(tris) }); mesh.merge(); return new k.Manifold(mesh); };
   let m;
@@ -316,21 +316,21 @@ export const Surface = {
 };
 
 // rotation-minimising frames along a polyline
-function rmf(P: Vec3[], up?: Vec3) {
+export function rmf(P: Vec3[], up?: Vec3) {
   const T = P.map((_, i) => v3.norm(v3.sub(P[Math.min(P.length - 1, i + 1)], P[Math.max(0, i - 1)])));
   let x = up ? v3.norm(v3.sub(toVec3(up), v3.scale(T[0], v3.dot(toVec3(up), T[0])))) : v3.perp(T[0]);
   const X: Vec3[] = [x];
   for (let i = 1; i < P.length; i++) { const t = T[i]; x = v3.norm(v3.sub(x, v3.scale(t, v3.dot(x, t)))); X.push(x); }
   return { T, X };
 }
-function frameAt(fr: { T: Vec3[]; X: Vec3[] }, P: Vec3[], t: number) {
+export function frameAt(fr: { T: Vec3[]; X: Vec3[] }, P: Vec3[], t: number) {
   const s = Math.max(0, Math.min(1, t)) * (P.length - 1), i = Math.min(P.length - 2, Math.floor(s)), f = s - i;
   const o = v3.lerp(P[i], P[i + 1], f), z = v3.norm(v3.lerp(fr.T[i], fr.T[i + 1], f));
   const x = v3.norm(v3.sub(v3.lerp(fr.X[i], fr.X[i + 1], f), v3.scale(z, v3.dot(v3.lerp(fr.X[i], fr.X[i + 1], f), z))));
   return { o, x, y: v3.cross(z, x), z };
 }
 /** Catmull-Rom through points at parameter t in [0,1]. */
-function crAt(pts: Vec3[], t: number): Vec3 {
+export function crAt(pts: Vec3[], t: number): Vec3 {
   const n = pts.length; if (n === 2) return v3.lerp(pts[0], pts[1], t);
   const s = Math.max(0, Math.min(1, t)) * (n - 1), i = Math.min(n - 2, Math.floor(s)), f = s - i;
   const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(n - 1, i + 2)];
@@ -339,13 +339,13 @@ function crAt(pts: Vec3[], t: number): Vec3 {
 }
 
 // ---------------------------------------------------------------- blends
-function edgeTangent(s: SurfaceSheet, e: Edge, t: number): Vec3 {
+export function edgeTangent(s: SurfaceSheet, e: Edge, t: number): Vec3 {
   // outward cross-boundary tangent
   if (e === 'u1') return s.derivU(1, t); if (e === 'u0') return v3.scale(s.derivU(0, t), -1);
   if (e === 'v1') return s.derivV(t, 1); return v3.scale(s.derivV(t, 0), -1);
 }
-const edgePt = (s: SurfaceSheet, e: Edge, t: number) => (e === 'u0' ? s.f(0, t) : e === 'u1' ? s.f(1, t) : e === 'v0' ? s.f(t, 0) : s.f(t, 1));
-function nearestEdges(a: SurfaceSheet, b: SurfaceSheet): [Edge, Edge, boolean] {
+export const edgePt = (s: SurfaceSheet, e: Edge, t: number) => (e === 'u0' ? s.f(0, t) : e === 'u1' ? s.f(1, t) : e === 'v0' ? s.f(t, 0) : s.f(t, 1));
+export function nearestEdges(a: SurfaceSheet, b: SurfaceSheet): [Edge, Edge, boolean] {
   let best: [Edge, Edge, boolean] = ['u1', 'u0', false], bd = Infinity;
   for (const ea of ['u0', 'u1', 'v0', 'v1'] as Edge[]) for (const eb of ['u0', 'u1', 'v0', 'v1'] as Edge[]) for (const rev of [false, true]) {
     let d = 0; for (let i = 0; i <= 4; i++) d += v3.dist(edgePt(a, ea, i / 4), edgePt(b, eb, rev ? 1 - i / 4 : i / 4));
@@ -456,7 +456,7 @@ export class ControlCage {
   readonly kind = 'controlCage';
   constructor(readonly divisions: [number, number, number], readonly min: Vec3, readonly max: Vec3, readonly points: Vec3[]) {}
   index(i: number, j: number, k: number) { const [, ny, nz] = this.divisions; return (i * (ny + 1) + j) * (nz + 1) + k; }
-  point(i: number, j: number, k: number) { return this.points[this.index(i, j, k)]; }
+  point(i: any, j?: number, k?: number): Vec3 { if (Array.isArray(i)) [i, j, k] = i; return this.points[this.index(i, j!, k!)]; }
   /** Move one control point (or a set selected by a predicate) by `delta`. */
   move(sel: [number, number, number] | ((i: number, j: number, k: number, p: Vec3) => boolean), delta: Vec3) {
     const pts = this.points.slice(); const [nx, ny, nz] = this.divisions;
@@ -530,8 +530,8 @@ class ProductSkin {
   /** Station frame at height z (interpolated). */
   at(z: number) { const S = this.stations; const i = Math.max(0, S.findIndex((s, k) => k < S.length - 1 && z <= S[k + 1].z)); const a = S[i], b = S[Math.min(S.length - 1, i + 1)], t = b.z === a.z ? 0 : (z - a.z) / (b.z - a.z); return { width: a.width + (b.width - a.width) * t, depth: a.depth + (b.depth - a.depth) * t }; }
 }
-function resampleLoop(r: Vec3[], k: number) { return resample([...r, r[0]], k + 1).slice(0, k); }
-function atLoop(r: Vec3[], u: number) { const x = (((u % 1) + 1) % 1) * r.length, i = Math.floor(x) % r.length; return v3.lerp(r[i], r[(i + 1) % r.length], x - Math.floor(x)); }
+export function resampleLoop(r: Vec3[], k: number) { return resample([...r, r[0]], k + 1).slice(0, k); }
+export function atLoop(r: Vec3[], u: number) { const x = (((u % 1) + 1) % 1) * r.length, i = Math.floor(x) % r.length; return v3.lerp(r[i], r[(i + 1) % r.length], x - Math.floor(x)); }
 
 const MATERIALS: Record<string, { color: string; metalness: number; roughness: number }> = {
   anodizedAluminum: { color: '#b9bec4', metalness: 0.85, roughness: 0.35 }, satinPlastic: { color: '#e8e8e6', metalness: 0, roughness: 0.55 },
