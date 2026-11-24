@@ -61,7 +61,11 @@ npm run mcp -- --http 8787    # streamable HTTP at http://localhost:8787/mcp
 claude mcp add witness-cad -- npx tsx /path/to/witness-cad/mcp/server.ts
 ```
 
-Projects live in `~/.witness-cad/projects` (set `WITNESS_HOME` to move them). Tools: `read_docs`, `search_docs`, `list_projects`, `create_project`, `list_versions`, `create_draft`, `list_drafts`, `merge_draft`, `read_file`, `write_file`, `edit_file`, `save_version`, `build_model`, `build_variants`, `check_names`, `check_fit`, `check_assembly`, `check_joint_torque`, `check_strength`, `check_manufacturing`, `check_simready` (includes a short dynamics run), `simulate_model`, `check_hold`, `read_make_list`, `compare_versions`, `compare_to_reference`, `check_surfaces`, `paint_model`, `add_surface_detail`, `view_model` (PNG from a headless renderer), `render_picture`, `render_video` (turntable GIF), `read_version_picture`, `get_link`, `export_model`, `export_drawing`, `get_job`.
+Projects live in `~/.witness-cad/projects` (set `WITNESS_HOME` to move them). Tools: `read_docs`, `search_docs`, `list_projects`, `create_project`, `list_versions`, `create_draft`, `list_drafts`, `merge_draft`, `read_file`, `write_file`, `edit_file`, `save_version`, `build_model`, `build_variants`, `check_names`, `check_fit`, `check_assembly`, `check_joint_torque`, `check_strength`, `check_manufacturing`, `check_simready` (includes a short dynamics run), `simulate_model`, `check_hold`, `read_make_list`, `compare_versions`, `compare_to_reference`, `check_surfaces`, `paint_model`, `add_surface_detail`, `view_model` (PNG from a headless renderer), `render_picture`, `render_video` (turntable GIF), `read_version_picture`, `get_link`, `export_model`, `export_drawing`, `get_job`, `read_command_history`, `generate_image_asset` (procedural textures; no image model is configured).
+
+Every tool accepts `max_credits` and `max_duration_seconds` and reports `creditsUsed` (always 0 for local runs). `create_draft` and `save_version` take a `request_id` for idempotent retries, and `create_draft` can start from another draft (`from_draft` / `from_draft_id`). `check_assembly` also checks assembly steps (`ASSEMBLY.STEP.PASSES_THROUGH`, `ASSEMBLY.NO_STEPS`).
+
+With `--http`, the same server also serves an HTTP API at `/api/v1`: `capabilities`, `openapi.json`, `output-quotes`, `output-runs` (plus `/items` and `/cancel`, idempotent with `requestId`), `artifacts/{id}/download`, `capture-quotes`, `video-quotes` and `upload-sessions`. Set `WITNESS_API_KEY` to require a bearer token.
 
 ## Command line
 
@@ -76,7 +80,17 @@ npm run cli -- export path/to/project --format dxf --view section --at 5
 npm run cli -- params path/to/project
 npm run cli -- sim path/to/project --seconds 2 --target shoulder=80   # rigid-body dynamics
 npm run cli -- sim path/to/project --hold open=-0.3 --max-travel 3    # hold test
+npm run cli -- sim mechanism path/to/project --joint handle=60 --min-torque-margin-pct 20   # DOF, hold loads, drive margins
+npm run cli -- run path/to/project --combination 17           # combination index (0 = all defaults)
+npm run cli -- run path/to/project --variant long_reach       # a Param.variant
+npm run cli -- check combinations path/to/project             # all ≤100, else pairwise + last + 20 random
+npm run cli -- check variants path/to/project
+npm run cli -- export path/to/project --format guide          # instructions.pdf build guide from assembly steps
+npm run cli -- video path/to/project --recipe build-up        # parts fly in along their assembly steps
+npm run cli -- render path/to/project --view hero             # a scene() named view, or e.g. front-right
 ```
+
+ForgeCAD parity status, and the few places that differ, are tracked in [docs/PARITY.md](docs/PARITY.md).
 
 ## Limits
 
