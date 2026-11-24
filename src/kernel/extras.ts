@@ -2,6 +2,10 @@
 // metadata attachers, slicing statics, route builder, optics, joinery, the `lib` namespace and
 // extra Shape / ShapeGroup / Assembly methods.
 import { ForgeError } from './errors';
+import { normalizeStep, normalizePage, groupStepTag } from './assembly-steps';
+function tagGroup(g: any, tag: any): any {
+  return g.with({ children: g.children.map((c: any) => ({ ...c, item: c.item instanceof Shape ? c.item.withMeta({ assemblyGroups: [tag, ...(c.item.meta.assemblyGroups ?? [])] }) : c.item?.kind === 'group' ? tagGroup(c.item, tag) : c.item })) });
+}
 import { mat4, Mat4, toVec2, toVec3, v3, Vec2, Vec3 } from './math';
 import { Connector, connectorFrame, mateTransform, normConnector, Shape } from './shape';
 import { ShapeGroup, box, union } from './ops';
@@ -136,8 +140,8 @@ Object.assign(S, {
   manufacturing(this: Shape) { return this.meta.manufacturing ?? null; },
   withPhysicalMaterial,
   physicalMaterial(this: Shape) { return this.meta.physicalMaterial ?? null; },
-  withAssemblyStep(this: Shape, step: any) { return this.withMeta({ assemblyStep: typeof step === 'number' ? { order: step } : step }); },
-  withInstructionPage(this: Shape, page: any) { return this.withMeta({ instructionPages: [...(this.meta.instructionPages ?? []), page] }); },
+  withAssemblyStep(this: Shape, step: any) { return this.withMeta({ assemblyStep: normalizeStep(step) }); },
+  withInstructionPage(this: Shape, page: any) { return this.withMeta({ instructionPages: [...(this.meta.instructionPages ?? []), normalizePage(page)] }); },
   withDrawing(this: Shape, o: any = {}) { return this.withMeta({ drawing: { ...(this.meta.drawing ?? {}), ...o } }); },
   withDatum(this: Shape, name: string, d: any) {
     const datum = Array.isArray(d) && typeof d[0] === 'number' ? { kind: 'point', point: toVec3(d) } : d;
@@ -234,8 +238,8 @@ Object.assign(G, {
   manufacturing(this: ShapeGroup) { return this.meta.manufacturing ?? null; },
   withPhysicalMaterial(this: any, m: any) { return this.withMeta({ physicalMaterial: typeof m === 'string' ? { id: m, name: m } : m }); },
   physicalMaterial(this: ShapeGroup) { return this.meta.physicalMaterial ?? null; },
-  withAssemblyStep(this: any, step: any) { return this.withMeta({ assemblyStep: typeof step === 'number' ? { order: step } : step }); },
-  withInstructionPage(this: any, page: any) { return this.withMeta({ instructionPages: [...(this.meta.instructionPages ?? []), page] }); },
+  withAssemblyStep(this: any, step: any) { const st = normalizeStep(step); return tagGroup(this, groupStepTag(st, this.meta?.name)).withMeta({ assemblyStep: st }); },
+  withInstructionPage(this: any, page: any) { return this.withMeta({ instructionPages: [...(this.meta.instructionPages ?? []), normalizePage(page)] }); },
   volume(this: ShapeGroup) { return this.shapes().reduce((a, s) => a + s.volume(), 0); },
 });
 

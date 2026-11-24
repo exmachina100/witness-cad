@@ -1,6 +1,7 @@
 // Witness CAD MCP server: lets outside agents create projects, edit files, build, check, look at and export models.
 // stdio by default; `--http <port>` serves streamable HTTP at /mcp.
 import { createServer } from 'node:http';
+import { checkAssemblySteps } from '../src/kernel/assembly-steps';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -159,17 +160,21 @@ export function createWitnessServer() {
       const gap = overlap > 1e-6 ? 0 : A.minGap(B, Math.max(50, (min_clearance ?? 0) * 4));
       return json({ a, b, overlapVolume: overlap, minGap: gap, interferes: overlap > 1e-6, pass: overlap <= 1e-6 && (min_clearance == null || gap >= min_clearance) });
     });
-  tool('check_assembly', 'Solve assemblies at given joint values and report collisions, loop-closure warnings and joints.',
+  tool('check_assembly', 'Solve assemblies at given joint values and report collisions, loop-closure warnings and joints; move each assembly step\'s parts along their removal direction and report parts they pass through (ASSEMBLY.STEP.PASSES_THROUGH, ASSEMBLY.NO_STEPS).',
     { project, draft, joint_values: z.record(z.string(), z.record(z.string(), z.any())).optional() },
     async ({ project, draft, joint_values }) => {
       const r = await build({ project, draft });
       if (!r.ok) throw new Error(r.error?.message);
-      if (!r.assemblies.length) return text('The model returns no assembly.');
-      return json(r.assemblies.map((a) => {
+      const steps = checkAssemblySteps(r);
+      const assemblies = r.assemblies.map((a) => {
         const asm = live.assemblies.get(a.name)!;
         const solved = asm.solve({ ...a.values, ...(joint_values?.[a.name] ?? {}) });
         return { assembly: a.name, joints: a.joints.map((j) => ({ name: j.name, type: j.type, min: j.min, max: j.max })), warnings: solved.warnings(), collisions: solved.collisionReport() };
-      }));
+      });
+      return json({
+        assemblies, steps: steps.steps.map((s) => ({ index: s.index, title: s.title, note: s.note, direction: s.direction, kind: s.kind, parts: s.parts })),
+        waves: steps.waves, diagnostics: steps.diagnostics, pass: !steps.diagnostics.some((d) => d.severity === 'error'),
+      });
     });
   tool('check_joint_torque', 'Gravity torque at each joint (N·m) compared with servo limits declared through Sim.drive.servo({ maxTorqueNm }).',
     { project, draft, joint_values: z.record(z.string(), z.record(z.string(), z.any())).optional() },

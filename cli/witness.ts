@@ -6,7 +6,8 @@ import { projectNeedsStep } from '../src/kernel/importers';
 import { runProject, projectResolver, RunResult } from '../src/kernel/runtime';
 import { exportModel, EXPORT_FORMATS } from '../src/export';
 import { renderPng, RenderView } from '../src/render/raster';
-import { renderTurntableGif } from '../src/render/video';
+import { renderTurntableGif, renderBuildUpGif } from '../src/render/video';
+import { checkAssemblySteps } from '../src/kernel/assembly-steps';
 import { readFileSync } from 'node:fs';
 import { summarizeBuild } from '../src/app/agent-summary';
 import { runFea } from '../src/kernel/feaRun';
@@ -14,6 +15,7 @@ import { summarizeFea } from '../src/kernel/feaStudy';
 import { readFiles, store } from '../mcp/store';
 import { live } from '../src/kernel/runtime';
 import { simulateDynamics, holdTest } from '../src/kernel/physics';
+import { mechanismReport } from '../src/kernel/mechanism';
 
 const USAGE = `witness <command> <project> [options]
 
@@ -27,26 +29,33 @@ Commands
                                           finite element stress check; exits 1 below the study's target safety factor
   render  <project> [--view iso|front|top|…] [--out file.png] [--size 1200x800]
   video   <project> [--frames 36] [--out turntable.gif] [--size 480x360]    turntable GIF
+  video   <project> --recipe build-up [--frames 10]                         assembly build-up along the steps
   sim     <project> [--seconds 2] [--assembly name] [--target joint=value]   rigid-body dynamics summary
   sim     <project> --hold joint=load [--seconds 2] [--max-travel 3]          hold test, exits 1 if the joint gives
+  sim mechanism <project> [--joint name=value ...] [--min-torque-margin-pct 20]
+                                          degrees of freedom, static hold load on each driven joint
+                                          (at the pose and worst over its range) and drive margin; exits 1 below the margin
 
 <project> is a folder with main.forge.js, a single .forge.js file, or the id of a project in ~/.witness-cad.
 Options: --set / --param Name=value (repeatable) overrides parameters; --entry file.forge.js picks the root file.
 export also takes --view top|front|right|section and --at z for dxf / svg outlines.`;
 
 function args() {
-  const [cmd, target, ...rest] = process.argv.slice(2);
+  let [cmd, target, ...rest] = process.argv.slice(2);
+  let sub: string | undefined;
+  if (cmd === 'sim' && target === 'mechanism') { sub = 'mechanism'; target = rest.shift()!; }
   const o: Record<string, string> = {}, set: Record<string, any> = {};
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
     if (!a.startsWith('--')) continue;
     const k = a.slice(2), v = rest[i + 1];
-    if (k === 'target') { const [n, val] = v.split('='); (o as any).__targets = { ...((o as any).__targets ?? {}), [n]: Number(val) }; }
+    if (k === 'joint') { const [n, ...val] = v.split('='); const x = val.join('='); (o as any).__joints = { ...((o as any).__joints ?? {}), [n]: isNaN(Number(x)) ? x : Number(x) }; }
+    else if (k === 'target') { const [n, val] = v.split('='); (o as any).__targets = { ...((o as any).__targets ?? {}), [n]: Number(val) }; }
     else if (k === 'set' || k === 'param') { const [n, ...val] = v.split('='); const s = val.join('='); set[n] = s === 'true' ? true : s === 'false' ? false : isNaN(Number(s)) ? s : Number(s); }
     else o[k] = v;
     i++;
   }
-  return { cmd, target, o, set };
+  return { cmd, sub, target, o, set };
 }
 
 function load(target: string, entry?: string) {
@@ -65,7 +74,7 @@ function load(target: string, entry?: string) {
 }
 
 async function main() {
-  const { cmd, target, o, set } = args();
+  const { cmd, sub, target, o, set } = args();
   if (!cmd || !target || cmd === 'help') { console.log(USAGE); process.exit(cmd ? 0 : 1); }
   await initNode();
   projectResolver.fn = (alias) => store.byAlias(alias);
@@ -130,7 +139,11 @@ OK: ${sets.length} combination(s) passed`);
       if (!r.ok) { console.error(summarizeBuild(r)); process.exit(1); }
       const [w, h] = (o.size ?? '480x360').split('x').map(Number);
       const out = o.out ?? `${proj.name}-turntable.gif`;
-      writeFileSync(out, renderTurntableGif(r, { width: w, height: h, frames: o.frames ? Number(o.frames) : undefined }));
+      if (o.recipe === 'build-up') {
+        const chk = checkAssemblySteps(r);
+        if (!chk.steps.length) { console.error('build-up needs assembly steps (.withAssemblyStep({ direction }))'); process.exit(1); }
+        writeFileSync(out, renderBuildUpGif(r, chk.waves, chk.steps, { width: w, height: h, framesPerWave: o.frames ? Number(o.frames) : undefined }));
+      } else writeFileSync(out, renderTurntableGif(r, { width: w, height: h, frames: o.frames ? Number(o.frames) : undefined }));
       console.log(`wrote ${out}`);
       process.exit(0);
     }
@@ -139,6 +152,18 @@ OK: ${sets.length} combination(s) passed`);
       const name = o.assembly ?? r.assemblies[0]?.name;
       const asm = name ? live.assemblies.get(name) : undefined;
       if (!asm) { console.error('no assembly to simulate'); process.exit(1); }
+      if (sub === 'mechanism') {
+        const names = o.assembly ? [o.assembly] : r.assemblies.map((a) => a.name);
+        let ok = true;
+        for (const an of names) {
+          const rep = mechanismReport(an, live.assemblies.get(an)!, (o as any).__joints ?? {}, { minMarginPct: o['min-torque-margin-pct'] != null ? Number(o['min-torque-margin-pct']) : undefined });
+          ok &&= rep.pass;
+          console.log(`${an}: ${rep.dof} degree${rep.dof === 1 ? '' : 's'} of freedom (${rep.joints.filter((j) => j.dof).map((j) => `${j.name} ${j.type}`).join(', ') || 'none'})`);
+          for (const d of rep.drives) console.log(`  ${d.joint}: hold ${d.holdLoad} ${d.unit}, worst ${d.worstLoad} ${d.unit}${d.worstAt != null ? ` at ${+Number(d.worstAt).toFixed(2)}` : ''}${d.limit != null ? `, limit ${d.limit} ${d.unit}, margin ${d.marginPct}% -> ${d.pass ? 'PASS' : 'FAIL'}` : ''}`);
+          for (const nn of rep.notes) console.log(`  note: ${nn}`);
+        }
+        process.exit(ok ? 0 : 1);
+      }
       const seconds = o.seconds ? Number(o.seconds) : 2;
       if (o.hold) {
         const [joint, load] = o.hold.split('=');
